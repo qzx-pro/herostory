@@ -6,7 +6,7 @@ http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1
 
 测试结果如图：
 
-![image-20210201162119083](\src\main\resources\images\image-20210201162119083.png)
+![image-20210201162119083](herostory\src\main\resources\images\image-20210201162119083.png)
 
 服务器代码如下：
 
