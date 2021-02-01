@@ -84,7 +84,7 @@ https://github.com/protocolbuffers/protobuf/releases/download/v3.10.0-rc1/protoc
 
 测试工具：
 
-![image-20210201162431158](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/imagess/image-20210201162431158.png)
+![image-20210201162431158](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201162431158.png)
 
 编写消息协议文件GameMsgProtocol.proto
 
