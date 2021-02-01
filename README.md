@@ -6,7 +6,7 @@ http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1
 
 测试结果如图：
 
-![image-20210201162119083](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201162119083.png)
+![image-20210201162119083](src\main\resources\images\image-20210201162119083.png)
 
 服务器代码如下：
 
@@ -80,11 +80,11 @@ https://github.com/protocolbuffers/protobuf/releases/download/v3.10.0-rc1/protoc
 
 然后解压到D盘，配置环境变量
 
-![image-20210201162414395](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201162414395.png)
+![image-20210201162414395](src\main\resources\images\image-20210201162414395.png)
 
 测试工具：
 
-![image-20210201162431158](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201162431158.png)
+![image-20210201162431158](src\main\resources\images\image-20210201162431158.png)
 
 编写消息协议文件GameMsgProtocol.proto
 
@@ -244,11 +244,11 @@ message UserDieResult {
 protoc --java_out=D:\herostory\src\main\java\ GameMsgProtocol.proto
 ```
 
-![image-20210201163816507](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201163816507.png)
+![image-20210201163816507](src\main\resources\images\image-20210201163816507.png)
 
 可以看到成功生成java文件
 
-![image-20210201163925547](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201163925547.png)
+![image-20210201163925547](src\main\resources\images\image-20210201163925547.png)
 
 **该自定义消息的特点是前两个字节代表消息体的长度，后两个字节代表消息的编号，最后部分代表了消息体。**
 
@@ -438,7 +438,7 @@ public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
 
 访问http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=1和http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=2，可以发现
 
-![image-20210201194453377](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201194453377.png)
+![image-20210201194453377](src\main\resources\images\image-20210201194453377.png)
 
 **两个客户端中只有一个客户端接受到了另外一个客户端登陆的消息，而另外一个却没有，这是因为第一个先登陆的消息在广播的时候第二个客户端并没有登陆所以没有接受到。**
 
@@ -706,4 +706,4 @@ public class User {
 
 再次访问http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=1和http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=2可以看到客户端的角色已经同步。
 
-![image-20210201201717917](C:\Users\qiaozixin\AppData\Roaming\Typora\typora-user-images\image-20210201201717917.png)
+![image-20210201201717917](src\main\resources\images\image-20210201201717917.png)
