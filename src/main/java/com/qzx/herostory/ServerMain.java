@@ -39,7 +39,9 @@ public class ServerMain {
                                     new HttpServerCodec(),
                                     new HttpObjectAggregator(65536),
                                     new WebSocketServerProtocolHandler("/websocket"),
-                                    new GameMsgHandler()
+                                    new GameMsgDecoder(), // 添加消息解码器
+                                    new GameMsgEncoder(), // 添加消息编码器
+                                    new GameMsgHandler() // 添加消息处理器
                             );
                         }
                     })

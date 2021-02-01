@@ -22,3 +22,50 @@
 34074 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:BinaryWebSocketFrame(data: PooledUnsafeDirectByteBuf(ridx: 0, widx: 14, cap: 14))
 34338 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:BinaryWebSocketFrame(data: PooledUnsafeDirectByteBuf(ridx: 0, widx: 14, cap: 14))
 35373 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:BinaryWebSocketFrame(data: PooledUnsafeDirectByteBuf(ridx: 0, widx: 14, cap: 14))
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+5990 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:BinaryWebSocketFrame(data: PooledUnsafeDirectByteBuf(ridx: 0, widx: 19, cap: 19))
+5991 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:BinaryWebSocketFrame(data: PooledUnsafeDirectByteBuf(ridx: 0, widx: 4, cap: 4))
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+3004 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 1
+heroAvatar: "Hero_Hammer"
+
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+307  [nioEventLoopGroup-3-1] ERROR com.qzx.herostory.GameMsgEncoder  - 无法识别的消息: msg:DefaultFullHttpResponse(decodeResult: success, version: HTTP/1.1, content: PooledUnsafeDirectByteBuf(ridx: 0, widx: 0, cap: 0))
+HTTP/1.1 101 Switching Protocols
+upgrade: websocket
+connection: upgrade
+sec-websocket-accept: 0ZSo3Wm0VWR/GYcLqlthnXmcuXQ=
+329  [nioEventLoopGroup-3-2] ERROR com.qzx.herostory.GameMsgEncoder  - 无法识别的消息: msg:DefaultFullHttpResponse(decodeResult: success, version: HTTP/1.1, content: PooledUnsafeDirectByteBuf(ridx: 0, widx: 0, cap: 0))
+HTTP/1.1 101 Switching Protocols
+upgrade: websocket
+connection: upgrade
+sec-websocket-accept: C6E+jxJzCR/QmdRlz1bAPMB4bxY=
+347  [nioEventLoopGroup-3-3] ERROR com.qzx.herostory.GameMsgEncoder  - 无法识别的消息: msg:DefaultFullHttpResponse(decodeResult: success, version: HTTP/1.1, content: PooledUnsafeDirectByteBuf(ridx: 0, widx: 0, cap: 0))
+HTTP/1.1 101 Switching Protocols
+upgrade: websocket
+connection: upgrade
+sec-websocket-accept: vwaspp7Fg+UVVCqNaF51+pjZiSo=
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+14721 [nioEventLoopGroup-3-3] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 1
+heroAvatar: "Hero_Hammer"
+
+27685 [nioEventLoopGroup-3-4] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 2
+heroAvatar: "Hero_Shaman"
+
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+8579 [nioEventLoopGroup-3-5] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 1
+heroAvatar: "Hero_Hammer"
+
+15020 [nioEventLoopGroup-3-6] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 2
+heroAvatar: "Hero_Shaman"
+
+0    [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+13276 [nioEventLoopGroup-3-8] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 1
+heroAvatar: "Hero_Hammer"
+
+13291 [nioEventLoopGroup-3-8] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+17416 [nioEventLoopGroup-3-9] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userId: 2
+heroAvatar: "Hero_Shaman"
+
+17419 [nioEventLoopGroup-3-9] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
