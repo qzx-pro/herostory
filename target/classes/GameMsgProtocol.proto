@@ -5,19 +5,19 @@ option java_package = "com.qzx.herostory.msg";
 
 // 消息代号
 enum MsgCode {
-    USER_ENTRY_CMD = 0;
-    USER_ENTRY_RESULT = 1;
-    WHO_ELSE_IS_HERE_CMD = 2;
-    WHO_ELSE_IS_HERE_RESULT = 3;
-    USER_MOVE_TO_CMD = 4;
-    USER_MOVE_TO_RESULT = 5;
-    USER_QUIT_RESULT = 6;
-    USER_STOP_CMD = 7;
-    USER_STOP_RESULT = 8;
-    USER_ATTK_CMD = 9;
-    USER_ATTK_RESULT = 10;
-    USER_SUBTRACT_HP_RESULT = 11;
-    USER_DIE_RESULT = 12;
+  USER_ENTRY_CMD = 0;
+  USER_ENTRY_RESULT = 1;
+  WHO_ELSE_IS_HERE_CMD = 2;
+  WHO_ELSE_IS_HERE_RESULT = 3;
+  USER_MOVE_TO_CMD = 4;
+  USER_MOVE_TO_RESULT = 5;
+  USER_QUIT_RESULT = 6;
+  USER_STOP_CMD = 7;
+  USER_STOP_RESULT = 8;
+  USER_ATTK_CMD = 9;
+  USER_ATTK_RESULT = 10;
+  USER_SUBTRACT_HP_RESULT = 11;
+  USER_DIE_RESULT = 12;
 };
 
 // 
@@ -25,18 +25,18 @@ enum MsgCode {
 ///////////////////////////////////////////////////////////////////////
 // 指令
 message UserEntryCmd {
-    // 用户 Id
-    uint32 userId = 1;
-    // 英雄形象
-    string heroAvatar = 2;
+  // 用户 Id
+  uint32 userId = 1;
+  // 英雄形象
+  string heroAvatar = 2;
 }
 
 // 结果
 message UserEntryResult {
-    // 用户 Id
-    uint32 userId = 1;
-    // 英雄形象
-    string heroAvatar = 2;
+  // 用户 Id
+  uint32 userId = 1;
+  // 英雄形象
+  string heroAvatar = 2;
 }
 
 //
@@ -48,16 +48,16 @@ message WhoElseIsHereCmd {
 
 // 结果
 message WhoElseIsHereResult {
-    // 用户信息数组
-    repeated UserInfo userInfo = 1;
+  // 用户信息数组
+  repeated UserInfo userInfo = 1;
 
-    // 用户信息
-    message UserInfo {
-        // 用户 Id
-        uint32 userId = 1;
-        // 英雄形象
-        string heroAvatar = 2;
-    }
+  // 用户信息
+  message UserInfo {
+    // 用户 Id
+    uint32 userId = 1;
+    // 英雄形象
+    string heroAvatar = 2;
+  }
 }
 
 // 
@@ -65,24 +65,24 @@ message WhoElseIsHereResult {
 ///////////////////////////////////////////////////////////////////////
 // 指令
 message UserMoveToCmd {
-    // 
-    // XXX 注意: 用户移动指令中没有用户 Id,
-    // 这是为什么?
-    // 
-    // 移动到位置 X
-    float moveToPosX = 1;
-    // 移动到位置 Y
-    float moveToPosY = 2;
+  //
+  // XXX 注意: 用户移动指令中没有用户 Id,
+  // 这是为什么?
+  //
+  // 移动到位置 X
+  float moveToPosX = 1;
+  // 移动到位置 Y
+  float moveToPosY = 2;
 }
 
 // 结果
 message UserMoveToResult {
-    // 移动用户 Id
-    uint32 moveUserId = 1;
-    // 移动到位置 X
-    float moveToPosX = 2;
-    // 移动到位置 Y
-    float moveToPosY = 3;
+  // 移动用户 Id
+  uint32 moveUserId = 1;
+  // 移动到位置 X
+  float moveToPosX = 2;
+  // 移动到位置 Y
+  float moveToPosY = 3;
 }
 
 // 
@@ -93,8 +93,8 @@ message UserMoveToResult {
 // 
 // 结果
 message UserQuitResult {
-    // 退出用户 Id
-    uint32 quitUserId = 1;
+  // 退出用户 Id
+  uint32 quitUserId = 1;
 }
 
 //
@@ -106,12 +106,12 @@ message UserStopCmd {
 
 // 结果
 message UserStopResult {
-    // 停驻用户 Id
-    uint32 stopUserId = 1;
-    // 停驻在位置 X
-    float stopAtPosX = 2;
-    // 停驻在位置 Y
-    float stopAtPosY = 3;
+  // 停驻用户 Id
+  uint32 stopUserId = 1;
+  // 停驻在位置 X
+  float stopAtPosX = 2;
+  // 停驻在位置 Y
+  float stopAtPosY = 3;
 }
 
 //
@@ -119,28 +119,28 @@ message UserStopResult {
 ///////////////////////////////////////////////////////////////////////
 // 指令
 message UserAttkCmd {
-    // 目标用户 Id
-    uint32 targetUserId = 1;
+  // 目标用户 Id
+  uint32 targetUserId = 1;
 }
 
 // 结果
 message UserAttkResult {
-    // 发动攻击的用户 Id
-    uint32 attkUserId = 1;
-    // 目标用户 Id
-    uint32 targetUserId = 2;
+  // 发动攻击的用户 Id
+  uint32 attkUserId = 1;
+  // 目标用户 Id
+  uint32 targetUserId = 2;
 }
 
 // 用户减血结果
 message UserSubtractHpResult {
-    // 目标用户 Id
-    uint32 targetUserId = 1;
-    // 减血量
-    uint32 subtractHp = 2;
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+  // 减血量
+  uint32 subtractHp = 2;
 }
 
 // 死亡结果
 message UserDieResult {
-    // 目标用户 Id
-    uint32 targetUserId = 1;
+  // 目标用户 Id
+  uint32 targetUserId = 1;
 }

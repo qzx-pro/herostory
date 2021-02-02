@@ -46,12 +46,12 @@ public class ServerMain {
                         }
                     })
                     .bind(12345).sync();
-            if(future.isSuccess()){
+            if (future.isSuccess()) {
                 LOGGER.info("服务器启动成功");
             }
             future.channel().closeFuture().sync();
         } catch (InterruptedException e) {
-            LOGGER.error(e.getMessage(),e);
+            LOGGER.error(e.getMessage(), e);
         } finally {
             worker.shutdownGracefully();
             boss.shutdownGracefully();
