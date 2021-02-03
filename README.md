@@ -743,11 +743,11 @@ channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).set(userId)
     }
 ```
 
-## 问题（待解决）
+## 问题发现（已解决，见第四天）
 
 不过现在依然存在一个问题，在用户离线并重新上线后，之前已经登陆的人没有在当前客户端中同步到正确位置而是初始位置。
 
-## 重构
+## 重构（第一阶段）
 
 可以看到消息处理器，解码器和编码器中存在冗长的if...else和switch...case语句，如果在后期添加新的消息处理逻辑只会让该语句块更加冗长，并且也不符合开闭原则。这里对这三个类进行重构，首先是消息处理器中的ChannelGroup对象抽取为BroadCaster广播工具类。
 
@@ -863,7 +863,7 @@ public final class UserManager {
 
 ```
 
-### 重构消息处理器GameMsgHandler（使用Map）
+### 重构消息处理器GameMsgHandler（静态Map）
 
 对于消息处理器中存在着对不同的消息类型进行不同的消息处理逻辑，这导致if...else语句块冗长，并且会在有新的消息的时候需要修改处理器代码。
 
@@ -942,11 +942,13 @@ public final class CmdHandlerFactory {
 }
 ```
 
-### 重构消息解/编码器GameMsgDecoder/GameMsgEncoder（使用Map）
+### 重构消息解/编码器GameMsgDecoder/GameMsgEncoder（静态Map）
 
 消息解/编码器都是根据msgCode，也就是消息的类型来进行不同的处理，逻辑本身较为简单，可以直接使用一个消息识别类GameMsgRecognizer同时完成消息构建器获取getMsgBuilderByMsgCode和消息类型获取getMsgCodeByMsgClazz的方法。
 
 消息构建器的获取是利用每一个GeneratedMessageV3消息对象都有一个newBuilderForType()，这样我们将每一个传入的消息类型msgCode与消息对象进行一一映射，这样获得消息对象后就可以使用newBuilderForType()获得对应的消息构建器了。
+
+### 消息识别器
 
 ```java
 public final class GameMsgRecognizer {
@@ -1077,4 +1079,1985 @@ public class GameMsgEncoder extends ChannelOutboundHandlerAdapter {
 }
 ```
 
-现阶段算是完成了第一阶段的重构了，之后再需要添加业务逻辑，只需要增加map中的映射关系即可，但是依然需要修改工厂和消息识别器，仍然不满足开闭原则，第二阶段需要使用反射完成一次每一个消息对象的构建过程，对于新添加的业务逻辑只需要添加新的handler处理器即可。
+现阶段算是完成了第一阶段的重构了，之后再需要添加业务逻辑，只需要增加map中的映射关系即可，但是依然需要修改工厂和消息识别器，仍然不满足开闭原则，第二阶段需要使用反射完成Map的动态构建过程，对于新添加的业务逻辑只需要添加新的handler处理器即可。
+
+## 重构（第二阶段）
+
+### 重构消息识别器GameMsgRecognizer（反射）
+
+```java
+public final class GameMsgRecognizer {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(GameMsgRecognizer.class);
+    /**
+     * msgCode->消息对象字典
+     */
+    private static final ConcurrentHashMap<Integer, GeneratedMessageV3> MSGCODE_MESSAGE_MAP = new ConcurrentHashMap<>();
+    /**
+     * GeneratedMessageV3消息类->msgCode
+     */
+    private static final ConcurrentHashMap<Class<?>, Integer> CLAZZ_MSGCODE_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * 私有化构造方法
+     */
+    private GameMsgRecognizer() {
+    }
+
+    /**
+     * 初始化MAP
+     */
+    public static void init(){
+        LOGGER.info("开始初始化GameMsgRecognizer");
+        // 获取GameMsgProtocol所有的内部类
+        Class<?>[] innerClazzArray = GameMsgProtocol.class.getDeclaredClasses();
+        GameMsgProtocol.MsgCode[] msgCodes = GameMsgProtocol.MsgCode.values();
+        for (Class<?> clazz : innerClazzArray) {
+             // 如果不是消息类就跳过
+            if(clazz==null||
+                    !GeneratedMessageV3.class.isAssignableFrom(clazz)
+            ){
+                continue;
+            }
+            // 获取简单类名小写
+            String clazzName = clazz.getSimpleName().toLowerCase();
+
+            for (GameMsgProtocol.MsgCode msgCode : msgCodes) {
+                // 将所有的下划线去除并转化为小写
+                String msgCodeString = msgCode.toString().replaceAll("_", "").toLowerCase();
+
+                if(msgCodeString.startsWith(clazzName)){
+                    // 对应上消息类型和消息类名称
+                    try {
+                        // 调用clazz类的getDefaultInstance方法获得对象
+                        Object instance = clazz.getDeclaredMethod("getDefaultInstance").invoke(clazz);
+
+                        // 存储Map
+                        MSGCODE_MESSAGE_MAP.putIfAbsent(msgCode.getNumber(),(GeneratedMessageV3) instance);
+                        CLAZZ_MSGCODE_MAP.putIfAbsent(clazz,msgCode.getNumber());
+                    } catch (Exception e) {
+                        LOGGER.error(e.getMessage(),e);
+                    }
+                }
+            }
+
+        }
+        LOGGER.info("GameMsgRecognizer初始化完成");
+    }
+
+    /**
+     * 根据消息类型获取对应的消息构建器
+     *
+     * @param msgCode 消息类型
+     * @return Message.Builder 消息构建器
+     */
+    public static Message.Builder getMsgBuilderByMsgCode(int msgCode) {
+        if (msgCode < 0) {
+            return null;
+        }
+
+        return MSGCODE_MESSAGE_MAP.get(msgCode).newBuilderForType();
+    }
+
+    /**
+     * 根据消息类获取对应的消息类型
+     *
+     * @param clazz 消息字节码
+     * @return msgCode
+     */
+    public static int getMsgCodeByMsgClazz(Class<?> clazz) {
+        if (clazz == null) {
+            return -1;
+        }
+        Integer result = CLAZZ_MSGCODE_MAP.get(clazz);
+        return result == null ? -1 : result;
+    }
+}
+```
+
+### 重构命令处理器工厂CmdHandlerFactory（反射）
+
+在这个地方使用反射有两种方式，第一种就是和消息识别器一样根据命名规范来完成类名的获取从而获得处理器对象，第二种方式是获取所有处理器实现接口ICmdHandler的泛型，然后根据其泛型来进行反射获取处理器对象，之所以可以这么做是因为ICmdHandler的泛型就是当前处理器处理的命令类型，而我们恰好需要的就是命令类型到命令处理器的映射关系。
+
+#### 依赖命名规范使用反射
+
+```java
+public final class CmdHandlerFactory {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(CmdHandlerFactory.class);
+    /**
+     * 命令类型->命令解析器字典
+     */
+    private static final ConcurrentHashMap<Class<?>, ICmdHandler<? extends GeneratedMessageV3>> CMD_HANDLER_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * 私有化构造方法
+     */
+    private CmdHandlerFactory() {
+    }
+
+    /**
+     * 初始化Map
+     */
+    public static void init() {
+        LOGGER.info("开始初始化CmdHandlerFactory");
+        // 获取GameMsgProtocol所有的内部类
+        Class<?>[] innerClazzArray = GameMsgProtocol.class.getDeclaredClasses();
+        for (Class<?> clazz : innerClazzArray) {
+            // 如果不是消息类就跳过
+            if (clazz == null ||
+                    !GeneratedMessageV3.class.isAssignableFrom(clazz)
+            ) {
+                continue;
+            }
+
+            try {
+                // 根据资源路径名称获取资源对象
+                String path = CmdHandlerFactory.class.getPackage().getName().replaceAll("\\.", "/") + "/" + clazz.getSimpleName() + "Handler.class";
+                URL resource = CmdHandlerFactory.class.getResource("/" + path);
+
+                if (resource == null) {
+                    continue;
+                }
+
+                // 获取全限定类名称
+                String[] strings = resource.toString().replaceAll("/", ".").split("\\.");
+                StringBuilder fullClassName = new StringBuilder();
+                for (int i = 5; i < strings.length - 1; ++i) {
+                    fullClassName.append(strings[i]);
+                    if (i < strings.length - 2) {
+                        fullClassName.append(".");
+                    }
+                }
+                // 获取clazz对应的handler类对象
+                Class<?> handlerClazz = CmdHandlerFactory.class.getClassLoader().loadClass(fullClassName.toString());
+                Object handlerInstance = handlerClazz.getConstructor().newInstance();
+                // 存储clazz->handler映射关系
+                CMD_HANDLER_MAP.putIfAbsent(clazz, (ICmdHandler<? extends GeneratedMessageV3>) handlerInstance);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+        LOGGER.info("初始化CmdHandlerFactory完成");
+    }
+
+    /**
+     * 功能描述 : 创造命令对应的命令解析器
+     *
+     * @param: 命令的字节码
+     * @return: 命令处理器
+     */
+    public static ICmdHandler<? extends GeneratedMessageV3> createCmdHandler(Class<?> clazz) {
+        if (clazz == null) {
+            return null;
+        }
+
+        return CMD_HANDLER_MAP.get(clazz);
+    }
+}
+```
+
+#### 依赖ICmdHandler接口的泛型使用反射
+
+为了获取ICmdHandler接口的泛型，我们需要知道在cmdHandler包下有多少实现了ICmdHandler接口的类，所以需要一个工具类PackageUtil,通过listSubClazz方法来获取CmdHandlerFactory所在目录下的所有实现了ICmdHandler接口的子类。
+
+```java 
+package com.qzx.herostory.util;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.net.URL;
+import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarInputStream;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/3 - 02 - 03 - 12:16
+ * @description: 名称空间实用工具
+ * @version: 1.0
+ */
+public final class PackageUtil {
+    /**
+     * 类默认构造器
+     */
+    private PackageUtil() {
+    }
+
+    /**
+     * 列表指定包中的所有子类
+     *
+     * @param packageName 包名称
+     * @param recursive   是否递归查找
+     * @param superClazz  父类的类型
+     * @return 子类集合
+     */
+    static public Set<Class<?>> listSubClazz(
+            String packageName,
+            boolean recursive,
+            Class<?> superClazz) {
+        if (superClazz == null) {
+            return Collections.emptySet();
+        } else {
+            return listClazz(packageName, recursive, superClazz::isAssignableFrom);
+        }
+    }
+
+    /**
+     * 列表指定包中的所有类
+     *
+     * @param packageName 包名称
+     * @param recursive   是否递归查找?
+     * @param filter      过滤器
+     * @return 符合条件的类集合
+     */
+    static public Set<Class<?>> listClazz(
+            String packageName, boolean recursive, IClazzFilter filter) {
+
+        if (packageName == null ||
+                packageName.isEmpty()) {
+            return null;
+        }
+
+        // 将点转换成斜杠
+        final String packagePath = packageName.replace('.', '/');
+        // 获取类加载器
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+
+        // 结果集合
+        Set<Class<?>> resultSet = new HashSet<>();
+
+        try {
+            // 获取 URL 枚举
+            Enumeration<URL> urlEnum = cl.getResources(packagePath);
+
+            while (urlEnum.hasMoreElements()) {
+                // 获取当前 URL
+                URL currUrl = urlEnum.nextElement();
+                // 获取协议文本
+                final String protocol = currUrl.getProtocol();
+                // 定义临时集合
+                Set<Class<?>> tmpSet = null;
+
+                if ("FILE".equalsIgnoreCase(protocol)) {
+                    // 从文件系统中加载类
+                    tmpSet = listClazzFromDir(
+                            new File(currUrl.getFile()), packageName, recursive, filter
+                    );
+                } else if ("JAR".equalsIgnoreCase(protocol)) {
+                    // 获取文件字符串
+                    String fileStr = currUrl.getFile();
+
+                    if (fileStr.startsWith("file:")) {
+                        // 如果是以 "file:" 开头的,
+                        // 则去除这个开头
+                        fileStr = fileStr.substring(5);
+                    }
+
+                    if (fileStr.lastIndexOf('!') > 0) {
+                        // 如果有 '!' 字符,
+                        // 则截断 '!' 字符之后的所有字符
+                        fileStr = fileStr.substring(0, fileStr.lastIndexOf('!'));
+                    }
+
+                    // 从 JAR 文件中加载类
+                    tmpSet = listClazzFromJar(
+                            new File(fileStr), packageName, recursive, filter
+                    );
+                }
+
+                if (tmpSet != null) {
+                    // 如果类集合不为空,
+                    // 则添加到结果中
+                    resultSet.addAll(tmpSet);
+                }
+            }
+        } catch (Exception ex) {
+            // 抛出异常!
+            throw new RuntimeException(ex);
+        }
+
+        return resultSet;
+    }
+
+    /**
+     * 从目录中获取类列表
+     *
+     * @param dirFile     目录
+     * @param packageName 包名称
+     * @param recursive   是否递归查询子包
+     * @param filter      类过滤器
+     * @return 符合条件的类集合
+     */
+    static private Set<Class<?>> listClazzFromDir(
+            final File dirFile, final String packageName, final boolean recursive, IClazzFilter filter) {
+
+        if (!dirFile.exists() ||
+                !dirFile.isDirectory()) {
+            // 如果参数对象为空,
+            // 则直接退出!
+            return null;
+        }
+
+        // 获取子文件列表
+        File[] subFileArr = dirFile.listFiles();
+
+        if (subFileArr == null ||
+                subFileArr.length <= 0) {
+            return null;
+        }
+
+        // 文件队列, 将子文件列表添加到队列
+        Queue<File> fileQ = new LinkedList<>(Arrays.asList(subFileArr));
+
+        // 结果对象
+        Set<Class<?>> resultSet = new HashSet<>();
+
+        while (!fileQ.isEmpty()) {
+            // 从队列中获取文件
+            File currFile = fileQ.poll();
+
+            if (currFile.isDirectory() &&
+                    recursive) {
+                // 如果当前文件是目录,
+                // 并且是执行递归操作时,
+                // 获取子文件列表
+                subFileArr = currFile.listFiles();
+
+                if (subFileArr != null &&
+                        subFileArr.length > 0) {
+                    // 添加文件到队列
+                    fileQ.addAll(Arrays.asList(subFileArr));
+                }
+                continue;
+            }
+
+            if (!currFile.isFile() ||
+                    !currFile.getName().endsWith(".class")) {
+                // 如果当前文件不是文件,
+                // 或者文件名不是以 .class 结尾,
+                // 则直接跳过
+                continue;
+            }
+
+            // 类名称
+            String clazzName;
+
+            // 设置类名称
+            clazzName = currFile.getAbsolutePath();
+            // 清除最后的 .class 结尾
+            clazzName = clazzName.substring(dirFile.getAbsolutePath().length(), clazzName.lastIndexOf('.'));
+            // 转换目录斜杠
+            clazzName = clazzName.replace('\\', '/');
+            // 清除开头的 /
+            clazzName = trimLeft(clazzName, "/");
+            // 将所有的 / 修改为 .
+            clazzName = join(clazzName.split("/"), ".");
+            // 包名 + 类名
+            clazzName = packageName + "." + clazzName;
+
+            try {
+                // 加载类定义
+                Class<?> clazzObj = Class.forName(clazzName);
+
+                if (null != filter &&
+                        !filter.accept(clazzObj)) {
+                    // 如果过滤器不为空,
+                    // 且过滤器不接受当前类,
+                    // 则直接跳过!
+                    continue;
+                }
+
+                // 添加类定义到集合
+                resultSet.add(clazzObj);
+            } catch (Exception ex) {
+                // 抛出异常
+                throw new RuntimeException(ex);
+            }
+        }
+
+        return resultSet;
+    }
+
+    /**
+     * 从 .jar 文件中获取类列表
+     *
+     * @param jarFilePath .jar 文件路径
+     * @param recursive   是否递归查询子包
+     * @param filter      类过滤器
+     * @return 符合条件的类集合
+     */
+    static private Set<Class<?>> listClazzFromJar(
+            final File jarFilePath, final String packageName, final boolean recursive, IClazzFilter filter) {
+
+        if (jarFilePath == null ||
+                jarFilePath.isDirectory()) {
+            // 如果参数对象为空,
+            // 则直接退出!
+            return null;
+        }
+
+        // 结果对象
+        Set<Class<?>> resultSet = new HashSet<>();
+
+        try {
+            // 创建 .jar 文件读入流
+            JarInputStream jarIn = new JarInputStream(new FileInputStream(jarFilePath));
+            // 进入点
+            JarEntry entry;
+
+            while ((entry = jarIn.getNextJarEntry()) != null) {
+                if (entry.isDirectory()) {
+                    continue;
+                }
+
+                // 获取进入点名称
+                String entryName = entry.getName();
+
+                if (!entryName.endsWith(".class")) {
+                    // 如果不是以 .class 结尾,
+                    // 则说明不是 JAVA 类文件, 直接跳过!
+                    continue;
+                }
+
+                if (!recursive) {
+                    //
+                    // 如果没有开启递归模式,
+                    // 那么就需要判断当前 .class 文件是否在指定目录下?
+                    //
+                    // 获取目录名称
+                    String tmpStr = entryName.substring(0, entryName.lastIndexOf('/'));
+                    // 将目录中的 "/" 全部替换成 "."
+                    tmpStr = join(tmpStr.split("/"), ".");
+
+                    if (!packageName.equals(tmpStr)) {
+                        // 如果包名和目录名不相等,
+                        // 则直接跳过!
+                        continue;
+                    }
+                }
+
+                String clazzName;
+
+                // 清除最后的 .class 结尾
+                clazzName = entryName.substring(0, entryName.lastIndexOf('.'));
+                // 将所有的 / 修改为 .
+                clazzName = join(clazzName.split("/"), ".");
+
+                // 加载类定义
+                Class<?> clazzObj = Class.forName(clazzName);
+
+                if (null != filter &&
+                        !filter.accept(clazzObj)) {
+                    // 如果过滤器不为空,
+                    // 且过滤器不接受当前类,
+                    // 则直接跳过!
+                    continue;
+                }
+
+                // 添加类定义到集合
+                resultSet.add(clazzObj);
+            }
+
+            // 关闭 jar 输入流
+            jarIn.close();
+        } catch (Exception ex) {
+            // 抛出异常
+            throw new RuntimeException(ex);
+        }
+
+        return resultSet;
+    }
+
+    /**
+     * 类名称过滤器
+     *
+     * @author hjj2019
+     */
+    @FunctionalInterface
+    static public interface IClazzFilter {
+        /**
+         * 是否接受当前类?
+         *
+         * @param clazz 被筛选的类
+         * @return 是否符合条件
+         */
+        boolean accept(Class<?> clazz);
+    }
+
+    /**
+     * 使用连接符连接字符串数组
+     *
+     * @param strArr 字符串数组
+     * @param conn   连接符
+     * @return 连接后的字符串
+     */
+    static private String join(String[] strArr, String conn) {
+        if (null == strArr ||
+                strArr.length <= 0) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < strArr.length; i++) {
+            if (i > 0) {
+                // 添加连接符
+                sb.append(conn);
+            }
+
+            // 添加字符串
+            sb.append(strArr[i]);
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 清除源字符串左边的字符串
+     *
+     * @param src     原字符串
+     * @param trimStr 需要被清除的字符串
+     * @return 清除后的字符串
+     */
+    static private String trimLeft(String src, String trimStr) {
+        if (null == src ||
+                src.isEmpty()) {
+            return "";
+        }
+
+        if (null == trimStr ||
+                trimStr.isEmpty()) {
+            return src;
+        }
+
+        if (src.equals(trimStr)) {
+            return "";
+        }
+
+        while (src.startsWith(trimStr)) {
+            src = src.substring(trimStr.length());
+        }
+
+        return src;
+    }
+}
+
+
+```
+
+```java
+public final class CmdHandlerFactory {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(CmdHandlerFactory.class);
+    /**
+     * 命令类型->命令解析器字典
+     */
+    private static final ConcurrentHashMap<Class<?>, ICmdHandler<? extends GeneratedMessageV3>> CMD_HANDLER_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * 私有化构造方法
+     */
+    private CmdHandlerFactory() {
+    }
+
+    public static void init() {
+//        initByNameSpace();
+        initByGeneric();
+    }
+
+    /**
+     * 根据泛型初始化Map
+     */
+    public static void initByGeneric() {
+        LOGGER.info("开始初始化CmdHandlerFactory");
+        // 获取当前factory的包名
+        String packageName = CmdHandlerFactory.class.getPackage().getName();
+        // 获取当前包名下所有实现了ICmdHandler的子类
+        Set<Class<?>> listSubClazz = PackageUtil.listSubClazz(packageName, true, ICmdHandler.class);
+        // 获取每一个子类中的泛型，也就是该子类的具体类型
+        for (Class<?> subClazz : listSubClazz) {
+
+            // 如果为空，抽象类或者接口就跳过
+            if (subClazz == null ||
+                    (subClazz.getModifiers() & Modifier.ABSTRACT) != 0 ||
+                    subClazz.isInterface()) {
+                continue;
+            }
+            // 获取子类的方法数组
+            Method[] methods = subClazz.getDeclaredMethods();
+            // 最终的handle方法的第二个参数，也就是该子类的泛型
+            Class<?> msgType = null;
+
+            for (Method method : methods) {
+                if (!"handle".equals(method.getName())) {
+                    // 不是handle方法就跳过
+                    continue;
+                }
+                // 获取该类的方法参数数组
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (parameterTypes.length < 2 ||
+                        (parameterTypes[1] == GeneratedMessageV3.class) ||
+                        !GeneratedMessageV3.class.isAssignableFrom(parameterTypes[1])
+                ) {
+                    // 参数个数小于2，第二个参数是GeneratedMessageV3类型(父类)或者不是GeneratedMessageV3的子类都跳过
+                    continue;
+                }
+                // parameterTypes[1]就是泛型,也即是命令类型
+                msgType = parameterTypes[1];
+                break;
+            }
+
+            if (msgType == null) {
+                continue;
+            }
+
+            try {
+                // 获取当前子类对象,并存储 命令类型msgType->命令解析器cmdHandler的映射
+                ICmdHandler<?> cmdHandler = (ICmdHandler<?>) subClazz.newInstance();
+                CMD_HANDLER_MAP.putIfAbsent(msgType, cmdHandler);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+        LOGGER.info("初始化CmdHandlerFactory完成");
+    }
+
+    /**
+     * 根据命名空间初始化Map
+     */
+    public static void initByNameSpace() {
+        LOGGER.info("开始初始化CmdHandlerFactory");
+        // 获取GameMsgProtocol所有的内部类
+        Class<?>[] innerClazzArray = GameMsgProtocol.class.getDeclaredClasses();
+        for (Class<?> clazz : innerClazzArray) {
+            // 如果不是消息类就跳过
+            if (clazz == null ||
+                    !GeneratedMessageV3.class.isAssignableFrom(clazz)
+            ) {
+                continue;
+            }
+
+            try {
+                // 根据资源路径名称获取资源对象
+                String path = CmdHandlerFactory.class.getPackage().getName().replaceAll("\\.", "/") + "/" + clazz.getSimpleName() + "Handler.class";
+                URL resource = CmdHandlerFactory.class.getResource("/" + path);
+
+                if (resource == null) {
+                    continue;
+                }
+
+                // 获取全限定类名称
+                String[] strings = resource.toString().replaceAll("/", ".").split("\\.");
+                StringBuilder fullClassName = new StringBuilder();
+                for (int i = 5; i < strings.length - 1; ++i) {
+                    fullClassName.append(strings[i]);
+                    if (i < strings.length - 2) {
+                        fullClassName.append(".");
+                    }
+                }
+                // 获取clazz对应的handler类对象
+                Class<?> handlerClazz = CmdHandlerFactory.class.getClassLoader().loadClass(fullClassName.toString());
+                Object handlerInstance = handlerClazz.getConstructor().newInstance();
+                // 存储clazz->handler映射关系
+                CMD_HANDLER_MAP.putIfAbsent(clazz, (ICmdHandler<? extends GeneratedMessageV3>) handlerInstance);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+        LOGGER.info("初始化CmdHandlerFactory完成");
+    }
+
+    /**
+     * 功能描述 : 创造命令对应的命令解析器
+     *
+     * @param: 命令的字节码
+     * @return: 命令处理器
+     */
+    public static ICmdHandler<? extends GeneratedMessageV3> createCmdHandler(Class<?> clazz) {
+        if (clazz == null) {
+            return null;
+        }
+
+        return CMD_HANDLER_MAP.get(clazz);
+    }
+}
+```
+
+这样就完成了整个代码的重构过程，现阶段只需要添加相应的命令处理器类就可以实现添加新的业务逻辑的需求了。
+
+# 第四天
+
+## 解决方案（第三天遗留）
+
+由于在第三天中遗留了一个问题，在两个客户端移动角色之后，其中一个客户端如果刷新重进游戏后，出现在了初始位置，而不是最后移动的位置，为了解决这个问题，重新设计了消息本身，在发送移动消息的时候带上了开始移动的位置和时间，还有移动状态。
+
+解决的原理：首先当客户端A的角色需要移动的时候会将当前角色的初始位置，目标位置和时间戳发送给服务器端，服务器端进行转发给客户端B，这样客户端B就可以根据该消息中初始位置和目标位置所确定的方向并结合当前收到的时间戳来绘制客户端A角色在每一时刻具体的位置，这样就可以同步A和B之间角色的移动状态，其次在B重新进入游戏的时候会发送WhoElseIsHereCmd消息来查询还有谁在游戏中的时候，服务器会将A客户端角色移动的状态带回给B，这样B收到这样的消息后就会同步出自己最新的位置。
+
+重新设计的消息为GameMsgProtocol_new.proto，在终端输入如下命令即可重新生成消息协议类GameMsgProtocolNew
+
+```shell
+protoc --java_out=D:\herostory\src\main\java\ GameMsgProtocol_new.proto
+```
+
+修改代码中所有的GameMsgProtocol为GameMsgProtocolNew
+
+为了实现上述方案，首先需要在本地使用MoveState类来存储用户的移动状态，并且将其内置到每一个用户对象中
+
+```java
+package com.qzx.herostory.model;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/4 - 02 - 04 - 16:16
+ * @description: 用户的移动状态
+ * @version: 1.0
+ */
+public class MoveState {
+    /**
+     * 移动起始位置X
+     */
+    private float fromPosX;
+
+    /**
+     * 移动起始位置Y
+     */
+    private float fromPosY;
+
+    /**
+     * 移动目标位置X
+     */
+    private float toPosX;
+
+    /**
+     * 移动目标位置Y
+     */
+    private float toPosY;
+
+    /**
+     * 移动起始时间
+     */
+    private long startTime;
+
+    public float getFromPosX() {
+        return fromPosX;
+    }
+
+    public void setFromPosX(float fromPosX) {
+        this.fromPosX = fromPosX;
+    }
+
+    public float getFromPosY() {
+        return fromPosY;
+    }
+
+    public void setFromPosY(float fromPosY) {
+        this.fromPosY = fromPosY;
+    }
+
+    public float getToPosX() {
+        return toPosX;
+    }
+
+    public void setToPosX(float toPosX) {
+        this.toPosX = toPosX;
+    }
+
+    public float getToPosY() {
+        return toPosY;
+    }
+
+    public void setToPosY(float toPosY) {
+        this.toPosY = toPosY;
+    }
+
+    public long getStartTime() {
+        return startTime;
+    }
+
+    public void setStartTime(long startTime) {
+        this.startTime = startTime;
+    }
+
+    @Override
+    public String toString() {
+        return "MoveState{" +
+                "fromPosX=" + fromPosX +
+                ", fromPosY=" + fromPosY +
+                ", toPosX=" + toPosX +
+                ", toPosY=" + toPosY +
+                ", startTime=" + startTime +
+                '}';
+    }
+}
+
+```
+
+```java
+public class User {
+    /**
+     * 用户id
+     */
+    private Integer userId;
+
+    /**
+     * 用户头像
+     */
+    private String heroAvatar;
+
+    /**
+     * 用户的移动状态
+     */
+    private final MoveState moveState = new MoveState();
+}
+```
+
+然后需要修改收到用户移动后的处理逻辑，首先需要为该移动用户保存其移动状态到本地，并将移动状态广播给所有的客户端。
+
+```java
+public class UserMoveToCmdHandler implements ICmdHandler<GameMsgProtocolNew.UserMoveToCmd> {
+
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolNew.UserMoveToCmd msg) {
+        // 用户移动消息,构建UserMoveToResult消息
+        GameMsgProtocolNew.UserMoveToResult.Builder newBuilder = GameMsgProtocolNew.UserMoveToResult.newBuilder();
+
+        // 获取用户id
+        Integer userId = (Integer) channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).get();
+
+        if (userId == null) {
+            return;
+        }
+
+        // 获取用户的移动状态
+        User user = UserManager.getUserByUserId(userId);
+
+        if (user == null) {
+            return;
+        }
+
+        MoveState userMoveState = user.getMoveState();
+        // 设置用户的移动状态，目的是为了在收到WhoElseIsHereCmd命令的时候，将其带回同步自己的位置
+        long startTime = System.currentTimeMillis();
+        userMoveState.setStartTime(startTime);
+        userMoveState.setFromPosX(msg.getMoveFromPosX());
+        userMoveState.setFromPosY(msg.getMoveFromPosY());
+        userMoveState.setToPosX(msg.getMoveToPosX());
+        userMoveState.setToPosY(msg.getMoveToPosY());
+
+        newBuilder.setMoveUserId(userId);
+        // 记录移动的起始位置
+        newBuilder.setMoveFromPosX(msg.getMoveFromPosX());
+        newBuilder.setMoveFromPosY(msg.getMoveFromPosY());
+        newBuilder.setMoveToPosX(msg.getMoveToPosX());
+        newBuilder.setMoveToPosY(msg.getMoveToPosY());
+        // 记录移动的开始时间
+        newBuilder.setMoveStartTime(startTime);
+
+        // 广播消息
+        BroadCaster.broadcast(newBuilder.build());
+    }
+}
+```
+
+最后需要修改WhoElseIsHereCmdHandler处理器，当有用户查询还有谁在游戏中的时候就添加上在游戏中的用户的移动状态。
+
+```java
+public class WhoElseIsHereCmdHandler implements ICmdHandler<GameMsgProtocolNew.WhoElseIsHereCmd> {
+
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolNew.WhoElseIsHereCmd msg) {
+        // 谁还在消息
+        // 构建一个WhoElseIsHereResult消息进行返回
+        GameMsgProtocolNew.WhoElseIsHereResult.Builder builder = GameMsgProtocolNew.WhoElseIsHereResult.newBuilder();
+        // 在WhoElseIsHereResult消息中将所有用户字典的用户添加到UserInfo中
+        Collection<User> userCollection = UserManager.getUserCollection();
+        for (User user : userCollection) {
+
+            if (user == null) {
+                continue;
+            }
+
+            // 构建用户信息
+            GameMsgProtocolNew.WhoElseIsHereResult.UserInfo.Builder
+                    userInfoBuilder = GameMsgProtocolNew.WhoElseIsHereResult.UserInfo.newBuilder();
+            userInfoBuilder.setUserId(user.getUserId());
+            userInfoBuilder.setHeroAvatar(user.getHeroAvatar());
+
+            MoveState userMoveState = user.getMoveState();
+
+            // 利用本地的MoveState构建UserInfo中的MoveState消息
+            GameMsgProtocolNew.WhoElseIsHereResult.UserInfo.MoveState.Builder
+                    moveStateBuilder = GameMsgProtocolNew.WhoElseIsHereResult.UserInfo.MoveState.newBuilder();
+            moveStateBuilder.setFromPosX(userMoveState.getFromPosX());
+            moveStateBuilder.setFromPosY(userMoveState.getFromPosY());
+            moveStateBuilder.setToPosX(userMoveState.getToPosX());
+            moveStateBuilder.setToPosY(userMoveState.getToPosY());
+            moveStateBuilder.setStartTime(userMoveState.getStartTime());
+
+            // 设置每一个用户的移动状态
+            userInfoBuilder.setMoveState(moveStateBuilder.build());
+
+            builder.addUserInfo(userInfoBuilder);
+        }
+        // 返回消息(无需广播)
+        channelHandlerContext.writeAndFlush(builder.build());
+    }
+}
+```
+
+由于修改了消息协议，所以测试地址也发生了变化。
+
+http://cdn0001.afrxvk.cn/hero_story/demo/step020/index.html?serverAddr=127.0.0.1:12345&userId=1
+
+http://cdn0001.afrxvk.cn/hero_story/demo/step020/index.html?serverAddr=127.0.0.1:12345&userId=2
+
+## 攻击消息处理器UserAttkCmdHandler
+
+当角色A攻击角色B的时候，会发送UserAttkCmd消息给服务器，然后服务器需要先广播UserAttkResult消息，如果攻击者有攻击对象，那么还需要广播UserSubtractHpResult消息，从而更新被攻击者的血量，如果被攻击者的血量小于等于0了，说明该角色"
+已死"，广播UserDieResult消息告诉其他客户端该角色已经死亡。
+
+```java
+public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolNew.UserAttkCmd> {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(UserAttkCmdHandler.class);
+
+    private static final Random RANDOM = new Random();
+
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolNew.UserAttkCmd msg) {
+
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+
+        // 获取攻击方id
+        Integer userId = (Integer) channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).get();
+
+        if (userId == null) {
+            return;
+        }
+
+        // 获取攻击用户
+        User user = UserManager.getUserByUserId(userId);
+
+        if (user == null) {
+            return;
+        }
+
+        // 获取攻击目标
+        int targetUserId = msg.getTargetUserId();
+        if (targetUserId <= 0) {
+            // 没有攻击对象就广播攻击行为
+            broadcastUserAttkResult(userId, 0);
+        } else {
+            // 每一次攻击的伤害
+            int subtractHp = RANDOM.nextInt(10) + 1;
+            User targetUser = UserManager.getUserByUserId(targetUserId);
+            // 攻击对象还活着就掉血
+            if (targetUser.getCurrentHp() > 0) {
+                // 广播攻击消息UserAttkResult
+                broadcastUserAttkResult(userId, targetUserId);
+                // 广播掉血消息(有攻击对象才会掉血)
+                broadcastUserSubtractHpResult(targetUserId, subtractHp);
+            } else {
+                // 攻击对象已经死去就广播攻击行为,并不再广播死亡行为
+                broadcastUserAttkResult(userId, 0);
+                return;
+            }
+            // 更新当前血量
+            int currentHp = targetUser.getCurrentHp() - subtractHp;
+            targetUser.setCurrentHp(currentHp);
+
+            // 血量减小到0，广播UserDieResult消息
+            if (currentHp <= 0) {
+                broadcastUserDieResult(targetUserId);
+            }
+        }
+    }
+
+    /**
+     * 广播攻击结果消息
+     *
+     * @param attkUserId   攻击者ID
+     * @param targetUserId 被攻击者ID
+     */
+    private static void broadcastUserAttkResult(int attkUserId, int targetUserId) {
+        // 构建UserAttkResult消息
+        GameMsgProtocolNew.UserAttkResult.Builder newBuilder = GameMsgProtocolNew.UserAttkResult.newBuilder();
+        newBuilder.setAttkUserId(attkUserId);
+        newBuilder.setTargetUserId(targetUserId);
+        // 广播UserAttkResult消息
+        BroadCaster.broadcast(newBuilder.build());
+    }
+
+    /**
+     * 广播掉血消息
+     *
+     * @param targetUserId 被攻击者ID
+     * @param subtractHp   掉血的血量
+     */
+    private static void broadcastUserSubtractHpResult(int targetUserId, int subtractHp) {
+        // 构建UserSubtractHpResult消息
+        GameMsgProtocolNew.UserSubtractHpResult.Builder newBuilder = GameMsgProtocolNew.UserSubtractHpResult.newBuilder();
+        newBuilder.setSubtractHp(subtractHp);
+        newBuilder.setTargetUserId(targetUserId);
+        // 广播UserSubtractHpResult消息
+        BroadCaster.broadcast(newBuilder.build());
+    }
+
+    /**
+     * 广播被攻击用户死亡消息
+     * @param targetUserId 被攻击者的ID
+     */
+    private static void broadcastUserDieResult(int targetUserId) {
+        // 构建UserDieResult消息
+        GameMsgProtocolNew.UserDieResult.Builder newBuilder = GameMsgProtocolNew.UserDieResult.newBuilder();
+        newBuilder.setTargetUserId(targetUserId);
+        // 广播UserDieResult消息
+        BroadCaster.broadcast(newBuilder.build());
+    }
+
+}
+```
+
+## 问题发现
+
+我们在上述代码中添加一段输出线程名称的日志，并再次使用多名角色进行测试会发现如下现象
+
+![image-20210204201158174](D:\herostory\src\main\resources\images\image-20210204201158174.png)
+
+可以看到不同的角色进行攻击的时候使用的是不同的线程，这样在不同角色攻击同一个角色的时候会出现线程安全问题，两个攻击者显示的被攻击方的血量会不一致。
+
+## 解决方案
+
+对于线程安全的问题，第一印象就是使用加锁的方式来解决，但是加锁存在死锁的隐患，并且会让业务逻辑和控制逻辑耦合，不利于代码的简洁。这里采用将服务器的入口设置称为单线程的方式来处理，简单点说，就是让服务器只有一个线程来处理所有的事情，这样就不会出现跨线程同步的问题了。
+
+为此，得新建MainMsgHandler类作为所有消息处理器的入口，在该类的实例设置为单例，并且内部只有一个单线程线程池，所有的消息处理交给线程池处理，这样就在入口处完成了单线程设计。
+
+```java
+package com.qzx.herostory;
+
+import com.google.protobuf.GeneratedMessageV3;
+import com.qzx.herostory.cmdHandler.CmdHandlerFactory;
+import com.qzx.herostory.cmdHandler.ICmdHandler;
+import io.netty.channel.ChannelHandlerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/6 - 02 - 06 - 15:30
+ * @description: 所有消息处理器的入口
+ * @version: 1.0
+ */
+public final class MainMsgHandler {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(MainMsgHandler.class);
+    /**
+     * 单例对象
+     */
+    private static final MainMsgHandler MSG_HANDLER = new MainMsgHandler();
+    /**
+     * 构建单线程线程池
+     */
+    private static final ExecutorService EXECUTOR_SERVICE = new ThreadPoolExecutor(1, 1,
+            0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<Runnable>(),
+            (runnable) -> {
+                Thread thread = new Thread(runnable);
+                // 设置线程的名字
+                thread.setName("MainMsgHandler");
+                return thread;
+            });
+
+    /**
+     * 私有化构造方法
+     */
+    private MainMsgHandler() {
+
+    }
+
+    /**
+     * 获取MainMsgHandler单例对象
+     *
+     * @return MainMsgHandler单例
+     */
+    public MainMsgHandler getInstance() {
+        return MSG_HANDLER;
+    }
+
+    /**
+     * 处理逻辑入口
+     *
+     * @param channelHandlerContext channelHandlerContext
+     * @param msg                   命令
+     */
+    public static void process(ChannelHandlerContext channelHandlerContext, Object msg) {
+        // 提交任务到线程池中执行
+        EXECUTOR_SERVICE.submit(() -> {
+            try {
+                ICmdHandler<? extends GeneratedMessageV3> cmdHandler = CmdHandlerFactory.createCmdHandler(msg.getClass());
+
+                if (null == cmdHandler) {
+                    LOGGER.error(
+                            "未找到相对应的命令处理器, msgClazz = {}",
+                            msg.getClass().getName()
+                    );
+                    return;
+                }
+                // 解析命令
+                cmdHandler.handle(channelHandlerContext, cast(msg));
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * 将GeneratedMessageV3类型的消息转化为其子类
+     *
+     * @param msg 接受到的消息
+     * @param <T> GeneratedMessageV3子类
+     * @return T
+     */
+    private static <T extends GeneratedMessageV3> T cast(Object msg) {
+        if (!(msg instanceof GeneratedMessageV3)) {
+            return null;
+        }
+        return (T) msg;
+    }
+}
+
+```
+
+这样一来原先的消息处理器GameMsgHandler简化如此。
+
+```java
+public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(GameMsgHandler.class);
+
+    /**
+     * 用户加入逻辑
+     * @param ctx ChannelHandlerContext
+     * @throws Exception Exception
+     */
+    @Override
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        if (ctx == null) {
+            return;
+        }
+
+        // 将当前channel加入到group中进行管理
+        BroadCaster.addChannel(ctx.channel());
+    }
+
+    /**
+     * 用户离线逻辑
+     * @param ctx ChannelHandlerContext
+     * @throws Exception Exception
+     */
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        if (ctx == null) {
+            return;
+        }
+
+        // 移除用户channel
+        BroadCaster.removeChannel(ctx.channel());
+
+        // 处理用户离线逻辑
+        Integer userId = (Integer) ctx.channel().attr(AttributeKey.valueOf("userId")).get();
+        if (userId == null) {
+            return;
+        }
+
+        // 将该用户从用户字典中移除
+        UserManager.removeByUserId(userId);
+
+        // 构建UserQuitResult消息
+        GameMsgProtocolNew.UserQuitResult.Builder newBuilder = GameMsgProtocolNew.UserQuitResult.newBuilder();
+        newBuilder.setQuitUserId(userId);
+
+        // 群发该用户离线的消息
+        BroadCaster.broadcast(newBuilder.build());
+    }
+
+    @Override
+    protected void channelRead0(ChannelHandlerContext channelHandlerContext, Object msg) throws Exception {
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+        if (!(msg instanceof GeneratedMessageV3)) {
+            return; // 不是protobuf类型的消息返回
+        }
+
+        //处理命令
+        MainMsgHandler.process(channelHandlerContext, msg);
+
+        LOGGER.info("收到消息：msg:{}", msg);
+    }
+
+}
+```
+
+## 用户登陆消息处理器
+
+在此前的前端页面中都是在地址指定UserID来决定使用哪个游戏角色进行的登录，在这里结合mybatis实现用户查询数据库登陆游戏，并在用户不存在的时候完成用户注册。
+
+首先需要新建数据库hero_story和用户表t_users
+
+```mysql
+CREATE DATABASE hero_story DEFAULT CHARACTER SET utf8;
+
+USE hero_story;
+
+CREATE TABLE `t_user`
+(
+    `user_id`     int(11) NOT NULL AUTO_INCREMENT,
+    `user_name`   varchar(64) DEFAULT NULL,
+    `password`    varchar(64) DEFAULT NULL,
+    `hero_avatar` varchar(64) DEFAULT NULL,
+    PRIMARY KEY (`user_id`)
+);
+```
+
+在pom.xml文件中添加mybatis和mysql-connector依赖，并添加扫描xml文件配置
+
+```xml-dtd
+<dependency>
+    <groupId>org.mybatis</groupId>
+    <artifactId>mybatis</artifactId>
+    <version>3.5.6</version>
+</dependency>
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.22</version>
+</dependency>
+
+
+<resources>
+    <resource>
+        <directory>src/main/resources</directory>
+        <includes>
+        <include>**/*.properties</include>
+        <include>**/*.xml</include>
+        </includes>
+    </resource>
+    <resource>
+        <directory>src/main/java</directory>
+        <includes>
+        <include>**/*.xml</include>
+        </includes>
+    </resource>
+</resources>
+```
+
+由于要处理用户登陆消息，所以得更换消息协议为GameMsgProtocol_login.proto,执行完命令后得到GameMsgProtocolLogin类
+
+```protobuf
+syntax = "proto3";
+
+package msg;
+option java_package = "com.qzx.herostory.msg";
+
+// 消息代号
+enum MsgCode {
+  USER_ENTRY_CMD = 0;
+  USER_ENTRY_RESULT = 1;
+  WHO_ELSE_IS_HERE_CMD = 2;
+  WHO_ELSE_IS_HERE_RESULT = 3;
+  USER_MOVE_TO_CMD = 4;
+  USER_MOVE_TO_RESULT = 5;
+  USER_QUIT_RESULT = 6;
+  USER_STOP_CMD = 7;
+  USER_STOP_RESULT = 8;
+  USER_ATTK_CMD = 9;
+  USER_ATTK_RESULT = 10;
+  USER_SUBTRACT_HP_RESULT = 11;
+  USER_DIE_RESULT = 12;
+  USER_LOGIN_CMD = 13;
+  USER_LOGIN_RESULT = 14;
+  SELECT_HERO_CMD = 15;
+  SELECT_HERO_RESULT = 16;
+  GET_RANK_CMD = 17;
+  GET_RANK_RESULT = 18;
+};
+
+//
+// 用户入场
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserEntryCmd {
+}
+
+// 结果
+message UserEntryResult {
+  // 用户 Id
+  uint32 userId = 1;
+  // 用户名称
+  string userName = 2;
+  // 英雄形象
+  string heroAvatar = 3;
+}
+
+//
+// 还有谁在场
+///////////////////////////////////////////////////////////////////////
+// 指令
+message WhoElseIsHereCmd {
+}
+
+// 结果
+message WhoElseIsHereResult {
+  // 用户信息数组
+  repeated UserInfo userInfo = 1;
+
+  // 用户信息
+  message UserInfo {
+    // 用户 Id
+    uint32 userId = 1;
+    // 用户名称
+    string userName = 2;
+    // 英雄形象
+    string heroAvatar = 3;
+    // 移动状态
+    MoveState moveState = 4;
+
+    // 移动状态
+    message MoveState {
+      // 起始位置 X
+      float fromPosX = 1;
+      // 起始位置 Y
+      float fromPosY = 2;
+      // 移动到位置 X
+      float toPosX = 3;
+      // 移动到位置 Y
+      float toPosY = 4;
+      // 启程时间戳
+      uint64 startTime = 5;
+    }
+  }
+}
+
+//
+// 用户移动
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserMoveToCmd {
+  //
+  // XXX 注意: 用户移动指令中没有用户 Id,
+  // 这是为什么?
+  //
+  // 起始位置 X
+  float moveFromPosX = 1;
+  // 起始位置 Y
+  float moveFromPosY = 2;
+  // 移动到位置 X
+  float moveToPosX = 3;
+  // 移动到位置 Y
+  float moveToPosY = 4;
+}
+
+// 结果
+message UserMoveToResult {
+  // 移动用户 Id
+  uint32 moveUserId = 1;
+  // 起始位置 X
+  float moveFromPosX = 2;
+  // 起始位置 Y
+  float moveFromPosY = 3;
+  // 移动到位置 X
+  float moveToPosX = 4;
+  // 移动到位置 Y
+  float moveToPosY = 5;
+  // 启程时间戳
+  uint64 moveStartTime = 6;
+}
+
+//
+// 用户退场
+///////////////////////////////////////////////////////////////////////
+//
+// XXX 注意: 用户退场不需要指令, 因为是在断开服务器的时候执行
+//
+// 结果
+message UserQuitResult {
+  // 退出用户 Id
+  uint32 quitUserId = 1;
+}
+
+//
+// 用户停驻
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserStopCmd {
+}
+
+// 结果
+message UserStopResult {
+  // 停驻用户 Id
+  uint32 stopUserId = 1;
+  // 停驻在位置 X
+  float stopAtPosX = 2;
+  // 停驻在位置 Y
+  float stopAtPosY = 3;
+}
+
+//
+// 用户攻击
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserAttkCmd {
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+}
+
+// 结果
+message UserAttkResult {
+  // 发动攻击的用户 Id
+  uint32 attkUserId = 1;
+  // 目标用户 Id
+  uint32 targetUserId = 2;
+}
+
+// 用户减血结果
+message UserSubtractHpResult {
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+  // 减血量
+  uint32 subtractHp = 2;
+}
+
+// 死亡结果
+message UserDieResult {
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+}
+
+//
+// 用户登录
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserLoginCmd {
+  // 用户名称
+  string userName = 1;
+  // 用户密码
+  string password = 2;
+}
+
+// 结果
+message UserLoginResult {
+  // 用户 Id,
+  // 如果是 -1 则说明登录失败
+  uint32 userId = 1;
+  // 用户名称
+  string userName = 2;
+  // 英雄形象
+  string heroAvatar = 3;
+}
+
+//
+// 选择英雄
+///////////////////////////////////////////////////////////////////////
+// 指令
+message SelectHeroCmd {
+  // 英雄形象
+  string heroAvatar = 1;
+}
+
+// 结果
+message SelectHeroResult {
+  // 英雄形象,
+  // 如果是空字符串则说明失败
+  string heroAvatar = 1;
+}
+
+//
+// 获取排行榜
+///////////////////////////////////////////////////////////////////////
+// 指令
+message GetRankCmd {
+}
+
+// 结果
+message GetRankResult {
+  // 排名条目
+  repeated RankItem rankItem = 1;
+
+  // 用户信息
+  message RankItem {
+    // 排名 Id
+    uint32 rankId = 1;
+    // 用户 Id
+    uint32 userId = 2;
+    // 用户名称
+    string userName = 3;
+    // 英雄形象
+    string heroAvatar = 4;
+    // 胜利次数
+    uint32 win = 5;
+  }
+}
+
+```
+
+新建表对象UserEntity，dao层接口和xml文件
+
+```java 
+package com.qzx.herostory.login.db;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 15:38
+ * @description: 用户实体
+ * @version: 1.0
+ */
+public class UserEntity {
+    /**
+     * 用户 Id
+     */
+    public int userId;
+
+    /**
+     * 用户名称
+     */
+    public String userName;
+
+    /**
+     * 密码
+     */
+    public String password;
+
+    /**
+     * 英雄形象
+     */
+    public String heroAvatar;
+
+    public int getUserId() {
+        return userId;
+    }
+
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public void setUserName(String userName) {
+        this.userName = userName;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public String getHeroAvatar() {
+        return heroAvatar;
+    }
+
+    public void setHeroAvatar(String heroAvatar) {
+        this.heroAvatar = heroAvatar;
+    }
+
+    @Override
+    public String toString() {
+        return "UserEntity{" +
+                "userId=" + userId +
+                ", userName='" + userName + '\'' +
+                ", password='" + password + '\'' +
+                ", heroAvatar='" + heroAvatar + '\'' +
+                '}';
+    }
+}
+
+```
+
+```java
+package com.qzx.herostory.login.db;
+
+import org.apache.ibatis.annotations.Param;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 15:39
+ * @description: com.qzx.herostory.login.db
+ * @version: 1.0
+ */
+public interface IUserDao {
+    /**
+     * 根据用户名称获取用户实体
+     *
+     * @param userName 用户名称
+     * @return 用户实体
+     */
+    UserEntity getUserByName(@Param("userName") String userName);
+
+    /**
+     * 添加用户实体
+     *
+     * @param newUserEntity 用户实体
+     */
+    void insertInto(UserEntity newUserEntity);
+}
+
+```
+
+```xml-dtd
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.qzx.herostory.login.db.IUserDao">
+    <resultMap id="userEntity" type="com.qzx.herostory.login.db.UserEntity">
+        <id property="userId" column="user_id"/>
+        <result property="userName" column="user_name"/>
+        <result property="password" column="password"/>
+        <result property="heroAvatar" column="hero_avatar"/>
+    </resultMap>
+
+    <select id="getUserByName" resultMap="userEntity">
+        SELECT user_id, user_name, `password`, hero_avatar
+        FROM t_user
+        WHERE user_name = #{userName};
+    </select>
+
+    <insert id="insertInto">
+        <selectKey resultType="java.lang.Integer" order="AFTER" keyProperty="userId">
+            SELECT last_insert_id() AS user_id
+        </selectKey>
+        INSERT INTO t_user VALUES (default, #{userName}, #{password}, #{heroAvatar} );
+    </insert>
+</mapper>
+```
+
+添加数据源配置文件mybatisConfig.xml
+
+```xml-dtd
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration
+        PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-config.dtd">
+<configuration>
+    <!-- default引用environment的id,当前所使用的环境 -->
+    <environments default="default">
+        <!-- 声明可以使用的环境 -->
+        <environment id="default">
+            <!-- 使用原生JDBC事务 -->
+            <transactionManager type="JDBC"/>
+            <dataSource type="POOLED">
+                <property name="driver" value="com.mysql.cj.jdbc.Driver"/>
+                <property name="url" value="jdbc:mysql://127.0.0.1:3306/hero_story?serverTimezone=GMT%2B8"/>
+                <property name="username" value="root"/>
+                <property name="password" value="123456"/>
+            </dataSource>
+        </environment>
+    </environments>
+    <mappers>
+        <mapper class="com.qzx.herostory.login.db.IUserDao"/>
+    </mappers>
+</configuration>
+
+```
+
+建立mysql会话工厂以便提供连接
+
+```java
+package com.qzx.herostory;
+
+import org.apache.ibatis.io.Resources;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.apache.ibatis.session.SqlSessionFactoryBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 16:26
+ * @description: MySql 会话工厂
+ * @version: 1.0
+ */
+public class MySqlSessionFactory {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(MySqlSessionFactory.class);
+
+    private MySqlSessionFactory() {
+
+    }
+
+    private static SqlSessionFactory sqlSessionFactory;
+
+    public static void init() {
+        LOGGER.info("开始连接数据库");
+
+        try {
+            sqlSessionFactory = new SqlSessionFactoryBuilder()
+                    .build(Resources.getResourceAsStream("mybatisConfig.xml"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        LOGGER.info("连接数据库成功");
+    }
+
+    public static SqlSession getConnection() {
+
+        if (sqlSessionFactory == null) {
+            throw new RuntimeException("sqlSessionFactory 尚未初始化");
+        }
+
+        return sqlSessionFactory.openSession();
+    }
+}
+
+```
+
+添加登录核心逻辑LoginService
+
+```java
+package com.qzx.herostory.login;
+
+import com.qzx.herostory.MySqlSessionFactory;
+import com.qzx.herostory.login.db.IUserDao;
+import com.qzx.herostory.login.db.UserEntity;
+import org.apache.ibatis.session.SqlSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 15:42
+ * @description: com.qzx.herostory.login.db
+ * @version: 1.0
+ */
+public class LoginService {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoginService.class);
+
+    /**
+     * 单例对象
+     */
+    private static final LoginService LOGIN_SERVICE = new LoginService();
+
+    /**
+     * 私有化构造方法
+     */
+    private LoginService() {
+
+    }
+
+    /**
+     * 获取LoginService对象
+     *
+     * @return LoginService对象
+     */
+    public static LoginService getInstance() {
+        return LOGIN_SERVICE;
+    }
+
+    /**
+     * 根据用户名获取用户对象
+     *
+     * @param userName 用户名
+     * @param password 登陆密码
+     * @return 用户对象
+     */
+    public UserEntity login(String userName, String password) {
+        if (userName == null) {
+            LOGGER.error("userName为空");
+            return null;
+        }
+        UserEntity userEntity = null;
+        try (SqlSession session = MySqlSessionFactory.getConnection()) {
+            if (session == null) {
+                LOGGER.error("获取连接失败");
+                return null;
+            }
+
+            IUserDao iUserDao = session.getMapper(IUserDao.class);
+
+            if (iUserDao == null) {
+                LOGGER.error("iUserDao为空");
+                return null;
+            }
+            userEntity = iUserDao.getUserByName(userName);
+
+            if (userEntity == null) {
+                LOGGER.info("用户不存在，开始创建用户");
+
+                userEntity = new UserEntity();
+                userEntity.setUserName(userName);
+                userEntity.setPassword(password);
+                userEntity.setHeroAvatar("Hero_Shaman");
+                iUserDao.insertInto(userEntity);
+                session.commit();
+
+                LOGGER.info("创建成功，并开始登陆");
+            } else {
+                if (!userEntity.getPassword().equals(password)) {
+                    LOGGER.error("密码不正确");
+                    return null;
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
+        return userEntity;
+    }
+
+
+}
+
+```
+
+构建用户登录消息处理器UserLoginCmdHandler，在登录成功后就该用户存储到本地，然后将当前userId存储在channel中，最后构建UserLoginResult结果对象并返回给客户端。
+
+```java
+package com.qzx.herostory.cmdHandler;
+
+import com.qzx.herostory.login.LoginService;
+import com.qzx.herostory.login.db.UserEntity;
+import com.qzx.herostory.model.User;
+import com.qzx.herostory.model.UserManager;
+import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.AttributeKey;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 16:05
+ * @description: 用户登陆消息处理器
+ * @version: 1.0
+ */
+public class UserLoginCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserLoginCmd> {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoginService.class);
+
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserLoginCmd msg) {
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+        // 登录
+        String userName = msg.getUserName();
+        String password = msg.getPassword();
+        UserEntity userEntity = LoginService.getInstance().login(userName, password);
+
+        if (userEntity == null) {
+            LOGGER.info("登陆失败");
+            return;
+        }
+        // 存放该用户到channel中
+        LOGGER.info("登录成功");
+
+        // 创建本地User对象
+        User user = new User();
+        user.setUserId(userEntity.getUserId());
+        user.setCurrentHp(100);
+        user.setHeroAvatar(userEntity.getHeroAvatar());
+        user.setUserName(userName);
+
+        // 保存当前user对象到本地
+        UserManager.save(user);
+
+        // 将当前userId存储在channel中
+        channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).set(user.getUserId());
+
+        // 构建UserLoginResult结果对象
+        GameMsgProtocolLogin.UserLoginResult.Builder newBuilder = GameMsgProtocolLogin.UserLoginResult.newBuilder();
+        newBuilder.setUserId(user.getUserId());
+        newBuilder.setUserName(user.getUserName());
+        newBuilder.setHeroAvatar(user.getHeroAvatar());
+
+        // 发送消息给客户端
+        channelHandlerContext.writeAndFlush(newBuilder.build());
+    }
+}
+
+```
+
+由于添加了登录消息，在登录成功后会将当前登录用户存储在本地，所以入场消息就无需携带用户信息，直接根据channel取出userId，然后获取用户即可，并且由于消息中添加了UserName字段，所以在User对象中也得添加UserName字段并在登录成功后进行设置
+
+```java
+public class UserEntryCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserEntryCmd> {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(UserEntryCmdHandler.class);
+
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserEntryCmd msg) {
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+        // 获取userId
+        Integer userId = (Integer) channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).get();
+        if (userId == null) {
+            LOGGER.error("userId为空");
+            return;
+        }
+        // 获取当前登录对象
+        User user = UserManager.getUserByUserId(userId);
+        if (user == null) {
+            LOGGER.error("user为空");
+            return;
+        }
+
+        // 构建一个UserEntryResult对象
+        GameMsgProtocolLogin.UserEntryResult.Builder builder = GameMsgProtocolLogin.UserEntryResult.newBuilder();
+        builder.setUserId(userId);
+        builder.setHeroAvatar(user.getHeroAvatar());
+        builder.setUserName(user.getUserName());
+        GameMsgProtocolLogin.UserEntryResult userEntryResult = builder.build();
+
+        // 将该消息进行广播
+        BroadCaster.broadcast(userEntryResult);
+    }
+}
+```
+
+同样的在WhoElseIsHereCmd消息处理器中也得添加用户的UserName字段。
+
+```java
+userInfoBuilder.setUserName(user.getUserName());
+```
+
+## 问题发现（IO问题，待解决）
+
+在运行并且登录成功后系统会打印如下日志
+
+![image-20210207180821093](D:\herostory\src\main\resources\images\image-20210207180821093.png)
+
+也就是说当前的处理登录的IO线程和负责消息处理的线程是同一个线程，如果查询数据库阻塞这个系统也会阻塞。

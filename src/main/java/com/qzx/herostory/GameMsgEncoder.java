@@ -21,7 +21,9 @@ public class GameMsgEncoder extends ChannelOutboundHandlerAdapter {
 
     @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
-        if (ctx == null || msg == null) return;
+        if (ctx == null || msg == null) {
+            return;
+        }
         if (!(msg instanceof GeneratedMessageV3)) {
             super.write(ctx, msg, promise);
             return;
@@ -31,7 +33,7 @@ public class GameMsgEncoder extends ChannelOutboundHandlerAdapter {
             // 获取消息类型
             int msgCode = GameMsgRecognizer.getMsgCodeByMsgClazz(msg.getClass());
 
-            if(msgCode<0){
+            if (msgCode < 0) {
                 LOGGER.error(
                         "无法识别的消息, msgClazz = {}",
                         msg.getClass().getName()
@@ -44,9 +46,12 @@ public class GameMsgEncoder extends ChannelOutboundHandlerAdapter {
 
             // 包装成ByteBuf
             ByteBuf buffer = ctx.alloc().buffer();
-            buffer.writeShort((short) content.length);// 设置消息长度
-            buffer.writeShort((short) msgCode);// 设置消息编号
-            buffer.writeBytes(content);// 设置消息体
+            // 设置消息长度
+            buffer.writeShort((short) content.length);
+            // 设置消息编号
+            buffer.writeShort((short) msgCode);
+            // 设置消息体
+            buffer.writeBytes(content);
 
             // 封装为BinaryWebSocketFrame发送给客户端
             BinaryWebSocketFrame webSocketFrame = new BinaryWebSocketFrame(buffer);
