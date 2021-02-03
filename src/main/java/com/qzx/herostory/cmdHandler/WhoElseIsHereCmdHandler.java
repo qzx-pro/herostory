@@ -1,6 +1,5 @@
 package com.qzx.herostory.cmdHandler;
 
-import com.google.protobuf.GeneratedMessageV3;
 import com.qzx.herostory.User;
 import com.qzx.herostory.UserManager;
 import com.qzx.herostory.msg.GameMsgProtocol;
@@ -9,15 +8,15 @@ import io.netty.channel.ChannelHandlerContext;
 import java.util.Collection;
 
 /**
- * @Auther: qzx
+ * @author: qzx
  * @Date: 2021/2/2 - 02 - 02 - 19:02
  * @Description: com.qzx.herostory.cmdHandler
  * @version: 1.0
  */
-public class WhoElseIsHereCmdHandler implements ICmdHandler {
+public class WhoElseIsHereCmdHandler implements ICmdHandler<GameMsgProtocol.WhoElseIsHereCmd>  {
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GeneratedMessageV3 msg){
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocol.WhoElseIsHereCmd msg) {
         // 谁还在消息
         // 构建一个WhoElseIsHereResult消息进行返回
         GameMsgProtocol.WhoElseIsHereResult.Builder builder = GameMsgProtocol.WhoElseIsHereResult.newBuilder();

@@ -45,8 +45,12 @@ public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext channelHandlerContext, Object msg) throws Exception {
-        if (channelHandlerContext == null || msg == null) return;
-        if (!(msg instanceof GeneratedMessageV3)) return; // 不是protobuf类型的消息返回
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+        if (!(msg instanceof GeneratedMessageV3)) {
+            return; // 不是protobuf类型的消息返回
+        }
 
         try {
             ICmdHandler<? extends GeneratedMessageV3> cmdHandler = CmdHandlerFactory.createCmdHandler(msg.getClass());
@@ -59,7 +63,7 @@ public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
                 return;
             }
             // 解析命令
-            cmdHandler.handle(channelHandlerContext,cast(msg));
+            cmdHandler.handle(channelHandlerContext, cast(msg));
         } catch (Exception e) {
             LOGGER.error(e.getMessage(), e);
         }
@@ -67,8 +71,10 @@ public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
         LOGGER.info("收到消息：msg:{}", msg);
     }
 
-    private <T extends GeneratedMessageV3> T cast(Object msg){
-        if(!(msg instanceof GeneratedMessageV3)) return null;
-        return (T)msg;
+    private <T extends GeneratedMessageV3> T cast(Object msg) {
+        if (!(msg instanceof GeneratedMessageV3)) {
+            return null;
+        }
+        return (T) msg;
     }
 }

@@ -30,7 +30,9 @@ public final class BroadCaster {
      * @return: void
      */
     public static void addChannel(Channel channel) {
-        if (channel == null) return;
+        if (channel == null) {
+            return;
+        }
 
         CHANNELS.add(channel);
     }
@@ -42,7 +44,9 @@ public final class BroadCaster {
      * @return: void
      */
     public static void removeChannel(Channel channel) {
-        if (channel == null) return;
+        if (channel == null) {
+            return;
+        }
 
         CHANNELS.remove(channel);
     }
@@ -54,7 +58,9 @@ public final class BroadCaster {
      * @return: void
      */
     public static void broadcast(Object o) {
-        if (o == null) return;
+        if (o == null) {
+            return;
+        }
 
         CHANNELS.writeAndFlush(o);
     }

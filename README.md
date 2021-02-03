@@ -747,7 +747,7 @@ channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).set(userId)
 
 不过现在依然存在一个问题，在用户离线并重新上线后，之前已经登陆的人没有在当前客户端中同步到正确位置而是初始位置。
 
-## 重构
+## 重构（第一阶段）
 
 可以看到消息处理器，解码器和编码器中存在冗长的if...else和switch...case语句，如果在后期添加新的消息处理逻辑只会让该语句块更加冗长，并且也不符合开闭原则。这里对这三个类进行重构，首先是消息处理器中的ChannelGroup对象抽取为BroadCaster广播工具类。
 
@@ -863,7 +863,7 @@ public final class UserManager {
 
 ```
 
-### 重构消息处理器GameMsgHandler（使用Map）
+### 重构消息处理器GameMsgHandler（静态Map）
 
 对于消息处理器中存在着对不同的消息类型进行不同的消息处理逻辑，这导致if...else语句块冗长，并且会在有新的消息的时候需要修改处理器代码。
 
@@ -942,11 +942,13 @@ public final class CmdHandlerFactory {
 }
 ```
 
-### 重构消息解/编码器GameMsgDecoder/GameMsgEncoder（使用Map）
+### 重构消息解/编码器GameMsgDecoder/GameMsgEncoder（静态Map）
 
 消息解/编码器都是根据msgCode，也就是消息的类型来进行不同的处理，逻辑本身较为简单，可以直接使用一个消息识别类GameMsgRecognizer同时完成消息构建器获取getMsgBuilderByMsgCode和消息类型获取getMsgCodeByMsgClazz的方法。
 
 消息构建器的获取是利用每一个GeneratedMessageV3消息对象都有一个newBuilderForType()，这样我们将每一个传入的消息类型msgCode与消息对象进行一一映射，这样获得消息对象后就可以使用newBuilderForType()获得对应的消息构建器了。
+
+### 消息识别器
 
 ```java
 public final class GameMsgRecognizer {
@@ -1077,4 +1079,716 @@ public class GameMsgEncoder extends ChannelOutboundHandlerAdapter {
 }
 ```
 
-现阶段算是完成了第一阶段的重构了，之后再需要添加业务逻辑，只需要增加map中的映射关系即可，但是依然需要修改工厂和消息识别器，仍然不满足开闭原则，第二阶段需要使用反射完成一次每一个消息对象的构建过程，对于新添加的业务逻辑只需要添加新的handler处理器即可。
+现阶段算是完成了第一阶段的重构了，之后再需要添加业务逻辑，只需要增加map中的映射关系即可，但是依然需要修改工厂和消息识别器，仍然不满足开闭原则，第二阶段需要使用反射完成Map的动态构建过程，对于新添加的业务逻辑只需要添加新的handler处理器即可。
+
+## 重构（第二阶段）
+
+### 重构消息识别器GameMsgRecognizer（反射）
+
+```java
+public final class GameMsgRecognizer {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(GameMsgRecognizer.class);
+    /**
+     * msgCode->消息对象字典
+     */
+    private static final ConcurrentHashMap<Integer, GeneratedMessageV3> MSGCODE_MESSAGE_MAP = new ConcurrentHashMap<>();
+    /**
+     * GeneratedMessageV3消息类->msgCode
+     */
+    private static final ConcurrentHashMap<Class<?>, Integer> CLAZZ_MSGCODE_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * 私有化构造方法
+     */
+    private GameMsgRecognizer() {
+    }
+
+    /**
+     * 初始化MAP
+     */
+    public static void init(){
+        LOGGER.info("开始初始化GameMsgRecognizer");
+        // 获取GameMsgProtocol所有的内部类
+        Class<?>[] innerClazzArray = GameMsgProtocol.class.getDeclaredClasses();
+        GameMsgProtocol.MsgCode[] msgCodes = GameMsgProtocol.MsgCode.values();
+        for (Class<?> clazz : innerClazzArray) {
+             // 如果不是消息类就跳过
+            if(clazz==null||
+                    !GeneratedMessageV3.class.isAssignableFrom(clazz)
+            ){
+                continue;
+            }
+            // 获取简单类名小写
+            String clazzName = clazz.getSimpleName().toLowerCase();
+
+            for (GameMsgProtocol.MsgCode msgCode : msgCodes) {
+                // 将所有的下划线去除并转化为小写
+                String msgCodeString = msgCode.toString().replaceAll("_", "").toLowerCase();
+
+                if(msgCodeString.startsWith(clazzName)){
+                    // 对应上消息类型和消息类名称
+                    try {
+                        // 调用clazz类的getDefaultInstance方法获得对象
+                        Object instance = clazz.getDeclaredMethod("getDefaultInstance").invoke(clazz);
+
+                        // 存储Map
+                        MSGCODE_MESSAGE_MAP.putIfAbsent(msgCode.getNumber(),(GeneratedMessageV3) instance);
+                        CLAZZ_MSGCODE_MAP.putIfAbsent(clazz,msgCode.getNumber());
+                    } catch (Exception e) {
+                        LOGGER.error(e.getMessage(),e);
+                    }
+                }
+            }
+
+        }
+        LOGGER.info("GameMsgRecognizer初始化完成");
+    }
+
+    /**
+     * 根据消息类型获取对应的消息构建器
+     *
+     * @param msgCode 消息类型
+     * @return Message.Builder 消息构建器
+     */
+    public static Message.Builder getMsgBuilderByMsgCode(int msgCode) {
+        if (msgCode < 0) {
+            return null;
+        }
+
+        return MSGCODE_MESSAGE_MAP.get(msgCode).newBuilderForType();
+    }
+
+    /**
+     * 根据消息类获取对应的消息类型
+     *
+     * @param clazz 消息字节码
+     * @return msgCode
+     */
+    public static int getMsgCodeByMsgClazz(Class<?> clazz) {
+        if (clazz == null) {
+            return -1;
+        }
+        Integer result = CLAZZ_MSGCODE_MAP.get(clazz);
+        return result == null ? -1 : result;
+    }
+}
+```
+
+### 重构命令处理器工厂CmdHandlerFactory（反射）
+
+在这个地方使用反射有两种方式，第一种就是和消息识别器一样根据命名规范来完成类名的获取从而获得处理器对象，第二种方式是获取所有处理器实现接口ICmdHandler的泛型，然后根据其泛型来进行反射获取处理器对象，之所以可以这么做是因为ICmdHandler的泛型就是当前处理器处理的命令类型，而我们恰好需要的就是命令类型到命令处理器的映射关系。
+
+#### 依赖命名规范使用反射
+
+```java
+public final class CmdHandlerFactory {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(CmdHandlerFactory.class);
+    /**
+     * 命令类型->命令解析器字典
+     */
+    private static final ConcurrentHashMap<Class<?>, ICmdHandler<? extends GeneratedMessageV3>> CMD_HANDLER_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * 私有化构造方法
+     */
+    private CmdHandlerFactory() {
+    }
+
+    /**
+     * 初始化Map
+     */
+    public static void init() {
+        LOGGER.info("开始初始化CmdHandlerFactory");
+        // 获取GameMsgProtocol所有的内部类
+        Class<?>[] innerClazzArray = GameMsgProtocol.class.getDeclaredClasses();
+        for (Class<?> clazz : innerClazzArray) {
+            // 如果不是消息类就跳过
+            if (clazz == null ||
+                    !GeneratedMessageV3.class.isAssignableFrom(clazz)
+            ) {
+                continue;
+            }
+
+            try {
+                // 根据资源路径名称获取资源对象
+                String path = CmdHandlerFactory.class.getPackage().getName().replaceAll("\\.", "/") + "/" + clazz.getSimpleName() + "Handler.class";
+                URL resource = CmdHandlerFactory.class.getResource("/" + path);
+
+                if (resource == null) {
+                    continue;
+                }
+
+                // 获取全限定类名称
+                String[] strings = resource.toString().replaceAll("/", ".").split("\\.");
+                StringBuilder fullClassName = new StringBuilder();
+                for (int i = 5; i < strings.length - 1; ++i) {
+                    fullClassName.append(strings[i]);
+                    if (i < strings.length - 2) {
+                        fullClassName.append(".");
+                    }
+                }
+                // 获取clazz对应的handler类对象
+                Class<?> handlerClazz = CmdHandlerFactory.class.getClassLoader().loadClass(fullClassName.toString());
+                Object handlerInstance = handlerClazz.getConstructor().newInstance();
+                // 存储clazz->handler映射关系
+                CMD_HANDLER_MAP.putIfAbsent(clazz, (ICmdHandler<? extends GeneratedMessageV3>) handlerInstance);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+        LOGGER.info("初始化CmdHandlerFactory完成");
+    }
+
+    /**
+     * 功能描述 : 创造命令对应的命令解析器
+     *
+     * @param: 命令的字节码
+     * @return: 命令处理器
+     */
+    public static ICmdHandler<? extends GeneratedMessageV3> createCmdHandler(Class<?> clazz) {
+        if (clazz == null) {
+            return null;
+        }
+
+        return CMD_HANDLER_MAP.get(clazz);
+    }
+}
+```
+
+#### 依赖ICmdHandler接口的泛型使用反射
+
+为了获取ICmdHandler接口的泛型，我们需要知道在cmdHandler包下有多少实现了ICmdHandler接口的类，所以需要一个工具类PackageUtil,通过listSubClazz方法来获取CmdHandlerFactory所在目录下的所有实现了ICmdHandler接口的子类。
+
+```java 
+package com.qzx.herostory.util;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.net.URL;
+import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarInputStream;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/3 - 02 - 03 - 12:16
+ * @description: 名称空间实用工具
+ * @version: 1.0
+ */
+public final class PackageUtil {
+    /**
+     * 类默认构造器
+     */
+    private PackageUtil() {
+    }
+
+    /**
+     * 列表指定包中的所有子类
+     *
+     * @param packageName 包名称
+     * @param recursive   是否递归查找
+     * @param superClazz  父类的类型
+     * @return 子类集合
+     */
+    static public Set<Class<?>> listSubClazz(
+            String packageName,
+            boolean recursive,
+            Class<?> superClazz) {
+        if (superClazz == null) {
+            return Collections.emptySet();
+        } else {
+            return listClazz(packageName, recursive, superClazz::isAssignableFrom);
+        }
+    }
+
+    /**
+     * 列表指定包中的所有类
+     *
+     * @param packageName 包名称
+     * @param recursive   是否递归查找?
+     * @param filter      过滤器
+     * @return 符合条件的类集合
+     */
+    static public Set<Class<?>> listClazz(
+            String packageName, boolean recursive, IClazzFilter filter) {
+
+        if (packageName == null ||
+                packageName.isEmpty()) {
+            return null;
+        }
+
+        // 将点转换成斜杠
+        final String packagePath = packageName.replace('.', '/');
+        // 获取类加载器
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+
+        // 结果集合
+        Set<Class<?>> resultSet = new HashSet<>();
+
+        try {
+            // 获取 URL 枚举
+            Enumeration<URL> urlEnum = cl.getResources(packagePath);
+
+            while (urlEnum.hasMoreElements()) {
+                // 获取当前 URL
+                URL currUrl = urlEnum.nextElement();
+                // 获取协议文本
+                final String protocol = currUrl.getProtocol();
+                // 定义临时集合
+                Set<Class<?>> tmpSet = null;
+
+                if ("FILE".equalsIgnoreCase(protocol)) {
+                    // 从文件系统中加载类
+                    tmpSet = listClazzFromDir(
+                            new File(currUrl.getFile()), packageName, recursive, filter
+                    );
+                } else if ("JAR".equalsIgnoreCase(protocol)) {
+                    // 获取文件字符串
+                    String fileStr = currUrl.getFile();
+
+                    if (fileStr.startsWith("file:")) {
+                        // 如果是以 "file:" 开头的,
+                        // 则去除这个开头
+                        fileStr = fileStr.substring(5);
+                    }
+
+                    if (fileStr.lastIndexOf('!') > 0) {
+                        // 如果有 '!' 字符,
+                        // 则截断 '!' 字符之后的所有字符
+                        fileStr = fileStr.substring(0, fileStr.lastIndexOf('!'));
+                    }
+
+                    // 从 JAR 文件中加载类
+                    tmpSet = listClazzFromJar(
+                            new File(fileStr), packageName, recursive, filter
+                    );
+                }
+
+                if (tmpSet != null) {
+                    // 如果类集合不为空,
+                    // 则添加到结果中
+                    resultSet.addAll(tmpSet);
+                }
+            }
+        } catch (Exception ex) {
+            // 抛出异常!
+            throw new RuntimeException(ex);
+        }
+
+        return resultSet;
+    }
+
+    /**
+     * 从目录中获取类列表
+     *
+     * @param dirFile     目录
+     * @param packageName 包名称
+     * @param recursive   是否递归查询子包
+     * @param filter      类过滤器
+     * @return 符合条件的类集合
+     */
+    static private Set<Class<?>> listClazzFromDir(
+            final File dirFile, final String packageName, final boolean recursive, IClazzFilter filter) {
+
+        if (!dirFile.exists() ||
+                !dirFile.isDirectory()) {
+            // 如果参数对象为空,
+            // 则直接退出!
+            return null;
+        }
+
+        // 获取子文件列表
+        File[] subFileArr = dirFile.listFiles();
+
+        if (subFileArr == null ||
+                subFileArr.length <= 0) {
+            return null;
+        }
+
+        // 文件队列, 将子文件列表添加到队列
+        Queue<File> fileQ = new LinkedList<>(Arrays.asList(subFileArr));
+
+        // 结果对象
+        Set<Class<?>> resultSet = new HashSet<>();
+
+        while (!fileQ.isEmpty()) {
+            // 从队列中获取文件
+            File currFile = fileQ.poll();
+
+            if (currFile.isDirectory() &&
+                    recursive) {
+                // 如果当前文件是目录,
+                // 并且是执行递归操作时,
+                // 获取子文件列表
+                subFileArr = currFile.listFiles();
+
+                if (subFileArr != null &&
+                        subFileArr.length > 0) {
+                    // 添加文件到队列
+                    fileQ.addAll(Arrays.asList(subFileArr));
+                }
+                continue;
+            }
+
+            if (!currFile.isFile() ||
+                    !currFile.getName().endsWith(".class")) {
+                // 如果当前文件不是文件,
+                // 或者文件名不是以 .class 结尾,
+                // 则直接跳过
+                continue;
+            }
+
+            // 类名称
+            String clazzName;
+
+            // 设置类名称
+            clazzName = currFile.getAbsolutePath();
+            // 清除最后的 .class 结尾
+            clazzName = clazzName.substring(dirFile.getAbsolutePath().length(), clazzName.lastIndexOf('.'));
+            // 转换目录斜杠
+            clazzName = clazzName.replace('\\', '/');
+            // 清除开头的 /
+            clazzName = trimLeft(clazzName, "/");
+            // 将所有的 / 修改为 .
+            clazzName = join(clazzName.split("/"), ".");
+            // 包名 + 类名
+            clazzName = packageName + "." + clazzName;
+
+            try {
+                // 加载类定义
+                Class<?> clazzObj = Class.forName(clazzName);
+
+                if (null != filter &&
+                        !filter.accept(clazzObj)) {
+                    // 如果过滤器不为空,
+                    // 且过滤器不接受当前类,
+                    // 则直接跳过!
+                    continue;
+                }
+
+                // 添加类定义到集合
+                resultSet.add(clazzObj);
+            } catch (Exception ex) {
+                // 抛出异常
+                throw new RuntimeException(ex);
+            }
+        }
+
+        return resultSet;
+    }
+
+    /**
+     * 从 .jar 文件中获取类列表
+     *
+     * @param jarFilePath .jar 文件路径
+     * @param recursive   是否递归查询子包
+     * @param filter      类过滤器
+     * @return 符合条件的类集合
+     */
+    static private Set<Class<?>> listClazzFromJar(
+            final File jarFilePath, final String packageName, final boolean recursive, IClazzFilter filter) {
+
+        if (jarFilePath == null ||
+                jarFilePath.isDirectory()) {
+            // 如果参数对象为空,
+            // 则直接退出!
+            return null;
+        }
+
+        // 结果对象
+        Set<Class<?>> resultSet = new HashSet<>();
+
+        try {
+            // 创建 .jar 文件读入流
+            JarInputStream jarIn = new JarInputStream(new FileInputStream(jarFilePath));
+            // 进入点
+            JarEntry entry;
+
+            while ((entry = jarIn.getNextJarEntry()) != null) {
+                if (entry.isDirectory()) {
+                    continue;
+                }
+
+                // 获取进入点名称
+                String entryName = entry.getName();
+
+                if (!entryName.endsWith(".class")) {
+                    // 如果不是以 .class 结尾,
+                    // 则说明不是 JAVA 类文件, 直接跳过!
+                    continue;
+                }
+
+                if (!recursive) {
+                    //
+                    // 如果没有开启递归模式,
+                    // 那么就需要判断当前 .class 文件是否在指定目录下?
+                    //
+                    // 获取目录名称
+                    String tmpStr = entryName.substring(0, entryName.lastIndexOf('/'));
+                    // 将目录中的 "/" 全部替换成 "."
+                    tmpStr = join(tmpStr.split("/"), ".");
+
+                    if (!packageName.equals(tmpStr)) {
+                        // 如果包名和目录名不相等,
+                        // 则直接跳过!
+                        continue;
+                    }
+                }
+
+                String clazzName;
+
+                // 清除最后的 .class 结尾
+                clazzName = entryName.substring(0, entryName.lastIndexOf('.'));
+                // 将所有的 / 修改为 .
+                clazzName = join(clazzName.split("/"), ".");
+
+                // 加载类定义
+                Class<?> clazzObj = Class.forName(clazzName);
+
+                if (null != filter &&
+                        !filter.accept(clazzObj)) {
+                    // 如果过滤器不为空,
+                    // 且过滤器不接受当前类,
+                    // 则直接跳过!
+                    continue;
+                }
+
+                // 添加类定义到集合
+                resultSet.add(clazzObj);
+            }
+
+            // 关闭 jar 输入流
+            jarIn.close();
+        } catch (Exception ex) {
+            // 抛出异常
+            throw new RuntimeException(ex);
+        }
+
+        return resultSet;
+    }
+
+    /**
+     * 类名称过滤器
+     *
+     * @author hjj2019
+     */
+    @FunctionalInterface
+    static public interface IClazzFilter {
+        /**
+         * 是否接受当前类?
+         *
+         * @param clazz 被筛选的类
+         * @return 是否符合条件
+         */
+        boolean accept(Class<?> clazz);
+    }
+
+    /**
+     * 使用连接符连接字符串数组
+     *
+     * @param strArr 字符串数组
+     * @param conn   连接符
+     * @return 连接后的字符串
+     */
+    static private String join(String[] strArr, String conn) {
+        if (null == strArr ||
+                strArr.length <= 0) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < strArr.length; i++) {
+            if (i > 0) {
+                // 添加连接符
+                sb.append(conn);
+            }
+
+            // 添加字符串
+            sb.append(strArr[i]);
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 清除源字符串左边的字符串
+     *
+     * @param src     原字符串
+     * @param trimStr 需要被清除的字符串
+     * @return 清除后的字符串
+     */
+    static private String trimLeft(String src, String trimStr) {
+        if (null == src ||
+                src.isEmpty()) {
+            return "";
+        }
+
+        if (null == trimStr ||
+                trimStr.isEmpty()) {
+            return src;
+        }
+
+        if (src.equals(trimStr)) {
+            return "";
+        }
+
+        while (src.startsWith(trimStr)) {
+            src = src.substring(trimStr.length());
+        }
+
+        return src;
+    }
+}
+
+
+```
+
+```java
+public final class CmdHandlerFactory {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(CmdHandlerFactory.class);
+    /**
+     * 命令类型->命令解析器字典
+     */
+    private static final ConcurrentHashMap<Class<?>, ICmdHandler<? extends GeneratedMessageV3>> CMD_HANDLER_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * 私有化构造方法
+     */
+    private CmdHandlerFactory() {
+    }
+
+    public static void init() {
+//        initByNameSpace();
+        initByGeneric();
+    }
+
+    /**
+     * 根据泛型初始化Map
+     */
+    public static void initByGeneric() {
+        LOGGER.info("开始初始化CmdHandlerFactory");
+        // 获取当前factory的包名
+        String packageName = CmdHandlerFactory.class.getPackage().getName();
+        // 获取当前包名下所有实现了ICmdHandler的子类
+        Set<Class<?>> listSubClazz = PackageUtil.listSubClazz(packageName, true, ICmdHandler.class);
+        // 获取每一个子类中的泛型，也就是该子类的具体类型
+        for (Class<?> subClazz : listSubClazz) {
+
+            // 如果为空，抽象类或者接口就跳过
+            if (subClazz == null ||
+                    (subClazz.getModifiers() & Modifier.ABSTRACT) != 0 ||
+                    subClazz.isInterface()) {
+                continue;
+            }
+            // 获取子类的方法数组
+            Method[] methods = subClazz.getDeclaredMethods();
+            // 最终的handle方法的第二个参数，也就是该子类的泛型
+            Class<?> msgType = null;
+
+            for (Method method : methods) {
+                if (!"handle".equals(method.getName())) {
+                    // 不是handle方法就跳过
+                    continue;
+                }
+                // 获取该类的方法参数数组
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (parameterTypes.length < 2 ||
+                        (parameterTypes[1] == GeneratedMessageV3.class) ||
+                        !GeneratedMessageV3.class.isAssignableFrom(parameterTypes[1])
+                ) {
+                    // 参数个数小于2，第二个参数是GeneratedMessageV3类型(父类)或者不是GeneratedMessageV3的子类都跳过
+                    continue;
+                }
+                // parameterTypes[1]就是泛型,也即是命令类型
+                msgType = parameterTypes[1];
+                break;
+            }
+
+            if (msgType == null) {
+                continue;
+            }
+
+            try {
+                // 获取当前子类对象,并存储 命令类型msgType->命令解析器cmdHandler的映射
+                ICmdHandler<?> cmdHandler = (ICmdHandler<?>) subClazz.newInstance();
+                CMD_HANDLER_MAP.putIfAbsent(msgType, cmdHandler);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+        LOGGER.info("初始化CmdHandlerFactory完成");
+    }
+
+    /**
+     * 根据命名空间初始化Map
+     */
+    public static void initByNameSpace() {
+        LOGGER.info("开始初始化CmdHandlerFactory");
+        // 获取GameMsgProtocol所有的内部类
+        Class<?>[] innerClazzArray = GameMsgProtocol.class.getDeclaredClasses();
+        for (Class<?> clazz : innerClazzArray) {
+            // 如果不是消息类就跳过
+            if (clazz == null ||
+                    !GeneratedMessageV3.class.isAssignableFrom(clazz)
+            ) {
+                continue;
+            }
+
+            try {
+                // 根据资源路径名称获取资源对象
+                String path = CmdHandlerFactory.class.getPackage().getName().replaceAll("\\.", "/") + "/" + clazz.getSimpleName() + "Handler.class";
+                URL resource = CmdHandlerFactory.class.getResource("/" + path);
+
+                if (resource == null) {
+                    continue;
+                }
+
+                // 获取全限定类名称
+                String[] strings = resource.toString().replaceAll("/", ".").split("\\.");
+                StringBuilder fullClassName = new StringBuilder();
+                for (int i = 5; i < strings.length - 1; ++i) {
+                    fullClassName.append(strings[i]);
+                    if (i < strings.length - 2) {
+                        fullClassName.append(".");
+                    }
+                }
+                // 获取clazz对应的handler类对象
+                Class<?> handlerClazz = CmdHandlerFactory.class.getClassLoader().loadClass(fullClassName.toString());
+                Object handlerInstance = handlerClazz.getConstructor().newInstance();
+                // 存储clazz->handler映射关系
+                CMD_HANDLER_MAP.putIfAbsent(clazz, (ICmdHandler<? extends GeneratedMessageV3>) handlerInstance);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+        LOGGER.info("初始化CmdHandlerFactory完成");
+    }
+
+    /**
+     * 功能描述 : 创造命令对应的命令解析器
+     *
+     * @param: 命令的字节码
+     * @return: 命令处理器
+     */
+    public static ICmdHandler<? extends GeneratedMessageV3> createCmdHandler(Class<?> clazz) {
+        if (clazz == null) {
+            return null;
+        }
+
+        return CMD_HANDLER_MAP.get(clazz);
+    }
+}
+```
+
+这样就完成了整个代码的重构过程，现阶段只需要添加相应的命令处理器类就可以实现添加新的业务逻辑的需求了。
+

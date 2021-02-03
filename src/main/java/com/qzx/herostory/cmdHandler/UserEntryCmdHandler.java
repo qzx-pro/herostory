@@ -1,6 +1,5 @@
 package com.qzx.herostory.cmdHandler;
 
-import com.google.protobuf.GeneratedMessageV3;
 import com.qzx.herostory.BroadCaster;
 import com.qzx.herostory.User;
 import com.qzx.herostory.UserManager;
@@ -9,15 +8,15 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 
 /**
- * @Auther: qzx
+ * @author: qzx
  * @Date: 2021/2/2 - 02 - 02 - 18:59
  * @Description: com.qzx.herostory.cmdHandler
  * @version: 1.0
  */
-public class UserEntryCmdHandler implements ICmdHandler {
+public class UserEntryCmdHandler implements ICmdHandler<GameMsgProtocol.UserEntryCmd> {
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GeneratedMessageV3 msg){
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocol.UserEntryCmd msg) {
         // 入场消息
         int userId = ((GameMsgProtocol.UserEntryCmd) msg).getUserId();
         String heroAvatar = ((GameMsgProtocol.UserEntryCmd) msg).getHeroAvatar();

@@ -4,7 +4,7 @@ import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * @Auther: qzx
+ * @author: qzx
  * @Date: 2021/2/2 - 02 - 02 - 18:50
  * @Description: com.qzx.herostory
  * @version: 1.0
@@ -28,7 +28,9 @@ public final class UserManager {
      * @return: void
      */
     public static void removeByUserId(Integer userId) {
-        if (userId == null) return;
+        if (userId == null) {
+            return;
+        }
 
         USER_MAP.remove(userId);
     }
@@ -40,7 +42,9 @@ public final class UserManager {
      * @return: void
      */
     public static void save(User user) {
-        if (user == null) return;
+        if (user == null) {
+            return;
+        }
 
         USER_MAP.putIfAbsent(user.getUserId(), user);
     }
