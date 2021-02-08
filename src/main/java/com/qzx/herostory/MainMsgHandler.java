@@ -75,6 +75,15 @@ public final class MainMsgHandler {
     }
 
     /**
+     * 执行回调逻辑入口
+     *
+     * @param r 回调任务
+     */
+    public static void process(Runnable r) {
+        EXECUTOR_SERVICE.submit(r);
+    }
+
+    /**
      * 将GeneratedMessageV3类型的消息转化为其子类
      *
      * @param msg 接受到的消息

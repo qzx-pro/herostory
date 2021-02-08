@@ -3054,10 +3054,593 @@ public class UserEntryCmdHandler implements ICmdHandler<GameMsgProtocolLogin.Use
 userInfoBuilder.setUserName(user.getUserName());
 ```
 
-## 问题发现（IO问题，待解决）
+## 问题发现（IO问题，已解决，见第五天）
 
 在运行并且登录成功后系统会打印如下日志
 
-![image-20210207180821093](D:\herostory\src\main\resources\images\image-20210207180821093.png)
+![image-20210208150528624](D:\herostory\src\main\resources\images\image-20210208150528624.png)
 
-也就是说当前的处理登录的IO线程和负责消息处理的线程是同一个线程，如果查询数据库阻塞这个系统也会阻塞。
+也就是说当前的处理登录的IO线程和业务处理的线程是同一个线程，如果查询数据库阻塞这个系统也会阻塞。
+
+# 第五天
+
+## 解决方案（第四天遗留）
+
+在昨天的代码中发现IO线程和业务逻辑处理线程是同一个线程，这就好像一个餐厅的服务员在接受到客户的点菜请求后就去后台炒菜去了，这样就无法获得其他客户的点菜请求，在这里我们分离出IO线程来解决这个问题。
+
+首先我们提供一个异步处理器（在这里专门处理IO逻辑）AsyncOperationProcessor，它为外部提供一个process方法，只要调用process并传递所需要执行的任务，该方法就会把任务提交到另外一个线程池中执行（目前是单线程）。
+
+```java
+package com.qzx.herostory.async;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/8 - 02 - 08 - 15:08
+ * @description: 异步处理器
+ * @version: 1.0
+ */
+public class AsyncOperationProcessor {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(AsyncOperationProcessor.class);
+
+    /**
+     * 单例对象
+     */
+    private static final AsyncOperationProcessor ASYNC_OPERATION_PROCESSOR = new AsyncOperationProcessor();
+
+    /**
+     * 构建单线程线程池
+     */
+    private static final ExecutorService EXECUTOR_SERVICE = new ThreadPoolExecutor(1, 1,
+            0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<Runnable>(),
+            (runnable) -> {
+                Thread thread = new Thread(runnable);
+                // 设置线程的名字
+                thread.setName("AsyncOperationProcessor");
+                return thread;
+            });
+
+    /**
+     * 私有化构造方法
+     */
+    private AsyncOperationProcessor() {
+
+    }
+
+    /**
+     * 获取AsyncOperationProcessor单例对象
+     * @return AsyncOperationProcessor单例对象
+     */
+    public static AsyncOperationProcessor getInstance() {
+        return ASYNC_OPERATION_PROCESSOR;
+    }
+
+    /**
+     * 执行任务
+     * @param r 任务
+     */
+    public void process(Runnable r) {
+        EXECUTOR_SERVICE.submit(r);
+    }
+
+}
+
+```
+
+我们之前的处理流程是在UserLoginCmdHandler收到登陆消息，然后调用了LoginService提供的login方法来进行登录，我们现在需要将login方法更改为异步处理，具体做法就是将login的执行逻辑封装为一个task并调用AsyncOperationProcessor的process方法，将task传递其中即可。
+
+但是同时我们需要考虑另外一个问题，就是既然登录逻辑在另外一个线程中执行，那么如何获取登录成功后返回来的UserEntity对象并返回给UserLoginCmdHandler呢？
+
+这里采用回调函数的方法，我们修改login方法的返回值为void并且添加一个回调函数callback的方法，在登录成功后就将UserEntity对象返回给调用login方法的线程，也就是这里的UserLoginCmdHandler，所以在UserLoginCmdHandler中调用login方法的过程也得发生变化，将获得用户对象后的所有处理逻辑封装为回调函数传递给login中，也就是将UserLoginCmdHandler处理逻辑也放在另外一个线程里面进行处理。
+
+```java
+package com.qzx.herostory.async;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/8 - 02 - 08 - 15:08
+ * @description: 异步处理器
+ * @version: 1.0
+ */
+public class AsyncOperationProcessor {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(AsyncOperationProcessor.class);
+
+    /**
+     * 单例对象
+     */
+    private static final AsyncOperationProcessor ASYNC_OPERATION_PROCESSOR = new AsyncOperationProcessor();
+
+    /**
+     * 构建单线程线程池
+     */
+    private static final ExecutorService EXECUTOR_SERVICE = new ThreadPoolExecutor(1, 1,
+            0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<Runnable>(),
+            (runnable) -> {
+                Thread thread = new Thread(runnable);
+                // 设置线程的名字
+                thread.setName("AsyncOperationProcessor");
+                return thread;
+            });
+
+    /**
+     * 私有化构造方法
+     */
+    private AsyncOperationProcessor() {
+
+    }
+
+    /**
+     * 获取AsyncOperationProcessor单例对象
+     * @return AsyncOperationProcessor单例对象
+     */
+    public static AsyncOperationProcessor getInstance() {
+        return ASYNC_OPERATION_PROCESSOR;
+    }
+
+    /**
+     * 执行任务
+     * @param r 任务
+     */
+    public void process(Runnable r) {
+        EXECUTOR_SERVICE.submit(r);
+    }
+
+}
+
+```
+
+```java
+/**
+ * 根据用户名获取用户对象
+ *
+ * @param userName 用户名
+ * @param password 登陆密码
+ * @return
+ */
+public void login(String userName,String password,Function<UserEntity, Void> callback){
+        if(userName==null){
+        LOGGER.error("userName为空");
+        return;
+        }
+
+        AsyncOperationProcessor.getInstance().process(()->{
+        try(SqlSession session=MySqlSessionFactory.getConnection()){
+        if(session==null){
+        LOGGER.error("获取连接失败");
+        return;
+        }
+
+        IUserDao iUserDao=session.getMapper(IUserDao.class);
+        LOGGER.info("当前线程为："+Thread.currentThread().getName());
+        if(iUserDao==null){
+        LOGGER.error("iUserDao为空");
+        return;
+        }
+        UserEntity userEntity=iUserDao.getUserByName(userName);
+
+        if(userEntity==null){
+        LOGGER.info("用户不存在，开始创建用户");
+
+        userEntity=new UserEntity();
+        userEntity.setUserName(userName);
+        userEntity.setPassword(password);
+        userEntity.setHeroAvatar("Hero_Shaman");
+        iUserDao.insertInto(userEntity);
+        session.commit();
+
+        LOGGER.info("创建成功，并开始登陆");
+        }else{
+        if(!userEntity.getPassword().equals(password)){
+        LOGGER.error("密码不正确");
+        return;
+        }
+        }
+
+        if(callback!=null){
+        callback.apply(userEntity);
+        }
+        }catch(Exception e){
+        LOGGER.error(e.getMessage(),e);
+        }
+        });
+        }
+```
+
+```java
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 16:05
+ * @description: 用户登录消息处理器
+ * @version: 1.0
+ */
+public class UserLoginCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserLoginCmd> {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoginService.class);
+
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserLoginCmd msg) {
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+        // 登录
+        String userName = msg.getUserName();
+        String password = msg.getPassword();
+
+        LOGGER.info("开始登录");
+        LOGGER.info("当前线程为：" + Thread.currentThread().getName());
+        LoginService.getInstance().login(userName, password, (userEntity) -> {
+            if (userEntity == null) {
+                LOGGER.info("登录失败");
+                return null;
+            }
+            // 存放该用户到channel中
+            LOGGER.info("登录成功");
+
+            // 创建本地User对象
+            User user = new User();
+            user.setUserId(userEntity.getUserId());
+            user.setCurrentHp(100);
+            user.setHeroAvatar(userEntity.getHeroAvatar());
+            user.setUserName(userName);
+
+            // 保存当前user对象到本地
+            UserManager.save(user);
+
+            // 将当前userId存储在channel中
+            channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).set(user.getUserId());
+
+            // 构建UserLoginResult结果对象
+            GameMsgProtocolLogin.UserLoginResult.Builder newBuilder = GameMsgProtocolLogin.UserLoginResult.newBuilder();
+            newBuilder.setUserId(user.getUserId());
+            newBuilder.setUserName(user.getUserName());
+            newBuilder.setHeroAvatar(user.getHeroAvatar());
+
+            // 发送消息给客户端
+            channelHandlerContext.writeAndFlush(newBuilder.build());
+            return null;
+        });
+    }
+}
+```
+
+我们测试登录可以看到登录逻辑和业务处理逻辑在两个线程进行。
+
+![image-20210208154548485](D:\herostory\src\main\resources\images\image-20210208154548485.png)
+
+## 问题发现
+
+虽然我们现在分离了IO线程和业务处理线程，但是对于只有一个线程的IO处理依然会出现阻塞的情况，那么登录逻辑阻塞的话也会影响用户入场，从而无法进行业务处理。
+
+同时，由于我们将登录成功后的业务处理逻辑封装为了一个回调函数传递给异步线程，在登录成功后，后序的登录成功业务逻辑直接在异步线程完成了。这就好像一个厨师炒完菜后直接从后厨端菜给餐厅的客人，这样在逻辑上属于跨线程了，存在着数据的脏读写问题。
+
+## 解决方案
+
+### 分离IO和业务处理逻辑
+
+我们先解决如何将完全分离IO逻辑和业务处理逻辑的问题，因为登录的过程在异步线程中处理，而**登录完成后**
+的业务逻辑得在主线程中处理，所以我们可以将登录逻辑进行再一次封装，这样在执行异步逻辑的时候使用异步线程，在执行完毕后就将回调方法提交到主线程中执行就好，这里说的比较抽象，看下面代码即可，主要思路就是将登陆和业务执行封装为doAsync和doFinish方法，doAsync方法在异步线程中执行，doFinish方法在主线程中执行。
+
+首先抽取出一个异步执行接口IAsyncOperation，包含了异步执行逻辑和执行完毕后的回调逻辑(不一定有)。
+
+```java
+package com.qzx.herostory.async;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/8 - 02 - 08 - 16:24
+ * @description: 异步操作接口
+ * @version: 1.0
+ */
+public interface IAsyncOperation {
+    /**
+     * 异步执行逻辑
+     */
+    void doAsync();
+
+    /**
+     * 异步执行结束后的逻辑处理
+     */
+    default void doFinish() {
+
+    }
+}
+
+```
+
+修改AsyncOperationProcessor的process方法，实现执行IO处理和业务逻辑的完全分离
+
+```java
+/**
+ * 执行任务
+ * @param r 任务
+ */
+public void process(IAsyncOperation r){
+        EXECUTOR_SERVICE.submit(()->{
+        // 执行异步逻辑
+        r.doAsync();
+        // 在主线程中执行回调逻辑(业务逻辑)
+        MainMsgHandler.process(r::doFinish);
+        });
+        }
+```
+
+由于分离了IO，所以需要在LoginService中抽取登陆逻辑在AsyncLogin内部类中，它实现了IAsyncOperation接口，在其doAsync方法中完成登录逻辑。
+
+同时在构造异步操作的时候，重新doFinish方法，将回调函数执行逻辑添加在其中。
+
+```java
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 15:42
+ * @description: com.qzx.herostory.login.db
+ * @version: 1.0
+ */
+public class LoginService {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoginService.class);
+
+    /**
+     * 单例对象
+     */
+    private static final LoginService LOGIN_SERVICE = new LoginService();
+
+    /**
+     * 私有化构造方法
+     */
+    private LoginService() {
+
+    }
+
+    /**
+     * 获取LoginService对象
+     *
+     * @return LoginService对象
+     */
+    public static LoginService getInstance() {
+        return LOGIN_SERVICE;
+    }
+
+    /**
+     * 根据用户名获取用户对象
+     *
+     * @param userName 用户名
+     * @param password 登陆密码
+     * @return
+     */
+    public void login(String userName, String password, Function<UserEntity, Void> callback) {
+        if (userName == null) {
+            LOGGER.error("userName为空");
+            return;
+        }
+
+        IAsyncOperation asyncOperation = new AsyncLogin(userName, password) {
+            @Override
+            public void doFinish() {
+                if (callback != null) {
+                    LOGGER.info("执行登录成功后回调函数，当前线程为：" + Thread.currentThread().getName());
+                    callback.apply(this.getUserEntity());
+                }
+            }
+        };
+
+        AsyncOperationProcessor.getInstance().process(asyncOperation);
+    }
+
+    private static class AsyncLogin implements IAsyncOperation {
+        /**
+         * 日志对象
+         */
+        private static final Logger LOGGER = LoggerFactory.getLogger(AsyncLogin.class);
+        /**
+         * 用户名
+         */
+        String username;
+
+        /**
+         * 密码
+         */
+        String password;
+
+        /**
+         * 结果对象
+         */
+        UserEntity userEntity;
+
+        AsyncLogin(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+
+        public UserEntity getUserEntity() {
+            return userEntity;
+        }
+
+        /**
+         * 执行异步登录操作
+         */
+        @Override
+        public void doAsync() {
+            try (SqlSession session = MySqlSessionFactory.getConnection()) {
+                if (session == null) {
+                    LOGGER.error("获取连接失败");
+                    return;
+                }
+
+                IUserDao iUserDao = session.getMapper(IUserDao.class);
+
+                LOGGER.info("开始执行登录IO操作，当前线程为：" + Thread.currentThread().getName());
+
+                if (iUserDao == null) {
+                    LOGGER.error("iUserDao为空");
+                    return;
+                }
+
+                UserEntity userEntity = iUserDao.getUserByName(this.username);
+
+                if (userEntity == null) {
+                    LOGGER.info("用户不存在，开始创建用户");
+
+                    userEntity = new UserEntity();
+                    userEntity.setUserName(this.username);
+                    userEntity.setPassword(this.password);
+                    userEntity.setHeroAvatar("Hero_Shaman");
+                    iUserDao.insertInto(userEntity);
+                    session.commit();
+
+                    LOGGER.info("创建成功，并开始登陆");
+                } else {
+                    if (!userEntity.getPassword().equals(this.password)) {
+                        LOGGER.error("密码不正确");
+                        return;
+                    }
+                }
+                this.userEntity = userEntity;
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+}
+```
+
+运行项目测试登录可以看到，最开始的UserLoginCmdHandler由主线程MainMsgHandler处理，然后轮到AsyncOperationProcessor执行登录逻辑，登录成功后又回到MainMsgHandler完成最后的业务逻辑处理部分。
+
+![image-20210208180816091](D:\herostory\src\main\resources\images\image-20210208180816091.png)
+
+### 实现IO多线程设计
+
+一个IO线程也有可能会阻塞，虽然不会阻塞主线程，但是会影响到主线程的业务处理，解决的方法就是使用多线程池实现IO处理。同时，如果在多线程下一个用户点击多次登录请求，就有可能会导致一个用户有两个userId(初始没有该用户)
+，为了避免该现象，我们得绑定当前用户的IO操作和其userId，也就是一个用户的IO操作都会在一个线程上执行，在当前代码中体现就是在IAsyncOperation线程中绑定userId了。
+
+首先在IAsyncOperation接口中添加获取bindId的方法
+
+```java 
+/**
+     * 获取当前线程绑定的id
+     * @return id
+     */
+    default int getBindId(){
+        return 0;
+    }
+```
+
+然后在LoginService中的AsyncLogin构造过程实现该方法
+
+```java
+IAsyncOperation asyncOperation=new AsyncLogin(userName,password){
+@Override
+public int getBindId(){
+        // 取最后一个字符作为选择的线程id
+        int bindId=userName.charAt(userName.length()-1);
+        LOGGER.info("获取bindId: "+bindId);
+        return bindId;
+        }
+
+@Override
+public void doFinish(){
+        if(callback!=null){
+        LOGGER.info("执行登录成功后回调函数，当前线程为："+Thread.currentThread().getName());
+        callback.apply(this.getUserEntity());
+        }
+        }
+        };
+```
+
+最后在异步处理器AsyncOperationProcessor中修改单线程池为单线程数组，在构造方法中进行实例化，并通过bindId获取对应的线程执行任务。
+
+```java
+public class AsyncOperationProcessor {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(AsyncOperationProcessor.class);
+
+    /**
+     * 单例对象
+     */
+    private static final AsyncOperationProcessor ASYNC_OPERATION_PROCESSOR = new AsyncOperationProcessor();
+
+    /**
+     * 构建单线程线程数组
+     */
+    private final ExecutorService[] esArray = new ExecutorService[8];
+
+    /**
+     * 私有化构造方法，实例化单线程数组
+     */
+    private AsyncOperationProcessor() {
+        for (int i = 0; i < esArray.length; ++i) {
+            String threadName = "AsyncOperationProcessor [ " + i + " ]";
+            esArray[i] = new ThreadPoolExecutor(1, 1,
+                    0L, TimeUnit.MILLISECONDS,
+                    new LinkedBlockingQueue<Runnable>(),
+                    (runnable) -> {
+                        Thread thread = new Thread(runnable);
+                        // 设置线程的名字
+                        thread.setName(threadName);
+                        return thread;
+                    });
+        }
+    }
+
+    /**
+     * 获取AsyncOperationProcessor单例对象
+     *
+     * @return AsyncOperationProcessor单例对象
+     */
+    public static AsyncOperationProcessor getInstance() {
+        return ASYNC_OPERATION_PROCESSOR;
+    }
+
+    /**
+     * 执行任务
+     *
+     * @param r 任务
+     */
+    public void process(IAsyncOperation r) {
+        // 获取绑定的id
+        int bindId = r.getBindId();
+        // 使用绑定的线程执行
+        int index = bindId % esArray.length;
+        esArray[index].submit(() -> {
+            // 执行异步逻辑
+            r.doAsync();
+            // 执行回调逻辑(业务逻辑)
+            MainMsgHandler.process(r::doFinish);
+        });
+    }
+
+}
+
+```
+
+启动项目测试登录，可以看到实现了多线程进行处理IO逻辑
+
+![image-20210208190712306](D:\herostory\src\main\resources\images\image-20210208190712306.png)
