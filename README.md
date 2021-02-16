@@ -6,7 +6,7 @@ http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1
 
 测试结果如图：
 
-![image-20210201162119083](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201162119083.png)
+![image-20210201162119083](src/main/resources/images/image-20210201162119083.png)
 
 服务器代码如下：
 
@@ -80,11 +80,11 @@ https://github.com/protocolbuffers/protobuf/releases/download/v3.10.0-rc1/protoc
 
 然后解压到D盘，配置环境变量
 
-![image-20210201162414395](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201162414395.png)
+![image-20210201162414395](src/main/resources/images/image-20210201162414395.png)
 
 测试工具：
 
-![image-20210201162431158](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201162431158.png)
+![image-20210201162431158](src/main/resources/images/image-20210201162431158.png)
 
 编写消息协议文件GameMsgProtocol.proto
 
@@ -244,11 +244,11 @@ message UserDieResult {
 protoc --java_out=D:\herostory\src\main\java\ GameMsgProtocol.proto
 ```
 
-![image-20210201163816507](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201163816507.png)
+![image-20210201163816507](src/main/resources/images/image-20210201163816507.png)
 
 可以看到成功生成java文件
 
-![image-20210201163925547](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201163925547.png)
+![image-20210201163925547](src/main/resources/images/image-20210201163925547.png)
 
 **该自定义消息的特点是前两个字节代表消息体的长度，后两个字节代表消息的编号，最后部分代表了消息体。**
 
@@ -438,7 +438,7 @@ public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
 
 访问http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=1和http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=2，可以发现
 
-![image-20210201194453377](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201194453377.png)
+![image-20210201194453377](src/main/resources/images/image-20210201194453377.png)
 
 **两个客户端中只有一个客户端接受到了另外一个客户端登陆的消息，而另外一个却没有，这是因为第一个先登陆的消息在广播的时候第二个客户端并没有登陆所以没有接受到。**
 
@@ -706,7 +706,7 @@ public class User {
 
 再次访问http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=1和http://cdn0001.afrxvk.cn/hero_story/demo/step010/index.html?serverAddr=127.0.0.1:12345&userId=2可以看到客户端的角色已经同步。
 
-![image-20210201201717917](https://github.com/qzx-pro/herostory/blob/master/src/main/resources/images/image-20210201201717917.png)
+![image-20210201201717917](src/main/resources/images/image-20210201201717917.png)
 
 # 第三天
 
@@ -2131,7 +2131,7 @@ public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolNew.UserAt
 
 我们在上述代码中添加一段输出线程名称的日志，并再次使用多名角色进行测试会发现如下现象
 
-![image-20210204201158174](D:\herostory\src\main\resources\images\image-20210204201158174.png)
+![image-20210204201158174](src\main\resources\images\image-20210204201158174.png)
 
 可以看到不同的角色进行攻击的时候使用的是不同的线程，这样在不同角色攻击同一个角色的时候会出现线程安全问题，两个攻击者显示的被攻击方的血量会不一致。
 
@@ -3058,7 +3058,7 @@ userInfoBuilder.setUserName(user.getUserName());
 
 在运行并且登录成功后系统会打印如下日志
 
-![image-20210208150528624](D:\herostory\src\main\resources\images\image-20210208150528624.png)
+![image-20210208150528624](src\main\resources\images\image-20210208150528624.png)
 
 也就是说当前的处理登录的IO线程和业务处理的线程是同一个线程，如果查询数据库阻塞这个系统也会阻塞。
 
@@ -3330,7 +3330,7 @@ public class UserLoginCmdHandler implements ICmdHandler<GameMsgProtocolLogin.Use
 
 我们测试登录可以看到登录逻辑和业务处理逻辑在两个线程进行。
 
-![image-20210208154548485](D:\herostory\src\main\resources\images\image-20210208154548485.png)
+![image-20210208154548485](src\main\resources\images\image-20210208154548485.png)
 
 ## 问题发现
 
@@ -3532,7 +3532,7 @@ public class LoginService {
 
 运行项目测试登录可以看到，最开始的UserLoginCmdHandler由主线程MainMsgHandler处理，然后轮到AsyncOperationProcessor执行登录逻辑，登录成功后又回到MainMsgHandler完成最后的业务逻辑处理部分。
 
-![image-20210208180816091](D:\herostory\src\main\resources\images\image-20210208180816091.png)
+![image-20210208180816091](src\main\resources\images\image-20210208180816091.png)
 
 ### 实现IO多线程设计
 
@@ -3647,7 +3647,7 @@ public class AsyncOperationProcessor {
 
 启动项目测试登录，可以看到实现了多线程进行处理IO逻辑
 
-![image-20210208190712306](D:\herostory\src\main\resources\images\image-20210208190712306.png)
+![image-20210208190712306](src\main\resources\images\image-20210208190712306.png)
 
 # 第六天
 
@@ -3655,7 +3655,7 @@ public class AsyncOperationProcessor {
 
 现在我们需要实现一个排行榜功能需求，通过统计一个用户的击杀敌人的次数来获取相应的排名，不过这里不打算将排行榜逻辑添加到游戏服务器中，而是单独开辟一个进程来实现排行榜，之所以这么做的原因是因为排行榜的需求有可能会变化，比如增加胜率排名、等级排名等，并且如果排行榜功能出现bug希望不会影响到游戏服务器的正常运行，从而实现线上修改bug，也就是说，我们希望在不影响主要业务功能的前提下，完成功能和扩展新功能。其解决方案如下：
 
-![image-20210214101847547](D:\herostory\src\main\resources\images\image-20210214101847547.png)
+![image-20210214101847547](src\main\resources\images\image-20210214101847547.png)
 
 当一个用户A击杀用户B的时候就将该消息写入rocketmq中，然后由排行榜进程读取消息并计算排名，并将最新的排名写入redis中，这样在redis中的数据发生变化的时候游戏服务器就会读取最新的排行榜数据从而获取最新的排名。
 
@@ -4745,4 +4745,4 @@ public class RankApp {
 
 启动ServerMain和RankApp进程，并使用http://cdn0001.afrxvk.cn/hero_story/demo/step040/index.html?serverAddr=127.0.0.1:12345进行测试，可以看到排行榜数据如下：
 
-![image-20210216210026975](D:\herostory\src\main\resources\images\image-20210216210026975.png)
+![image-20210216210026975](src\main\resources\images\image-20210216210026975.png)
