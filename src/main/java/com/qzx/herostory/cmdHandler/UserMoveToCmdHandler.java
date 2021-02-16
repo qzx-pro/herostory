@@ -4,7 +4,7 @@ import com.qzx.herostory.BroadCaster;
 import com.qzx.herostory.model.MoveState;
 import com.qzx.herostory.model.User;
 import com.qzx.herostory.model.UserManager;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 
@@ -14,12 +14,12 @@ import io.netty.util.AttributeKey;
  * @Description: com.qzx.herostory.cmdHandler
  * @version: 1.0
  */
-public class UserMoveToCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserMoveToCmd> {
+public class UserMoveToCmdHandler implements ICmdHandler<GameMsgProtocolRank.UserMoveToCmd> {
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserMoveToCmd msg) {
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolRank.UserMoveToCmd msg) {
         // 用户移动消息,构建UserMoveToResult消息
-        GameMsgProtocolLogin.UserMoveToResult.Builder newBuilder = GameMsgProtocolLogin.UserMoveToResult.newBuilder();
+        GameMsgProtocolRank.UserMoveToResult.Builder newBuilder = GameMsgProtocolRank.UserMoveToResult.newBuilder();
 
         // 获取用户id
         Integer userId = (Integer) channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).get();

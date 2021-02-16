@@ -3,7 +3,7 @@ package com.qzx.herostory.cmdHandler;
 import com.qzx.herostory.login.LoginService;
 import com.qzx.herostory.model.User;
 import com.qzx.herostory.model.UserManager;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
@@ -15,14 +15,14 @@ import org.slf4j.LoggerFactory;
  * @description: 用户登录消息处理器
  * @version: 1.0
  */
-public class UserLoginCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserLoginCmd> {
+public class UserLoginCmdHandler implements ICmdHandler<GameMsgProtocolRank.UserLoginCmd> {
     /**
      * 日志对象
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(LoginService.class);
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserLoginCmd msg) {
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolRank.UserLoginCmd msg) {
         if (channelHandlerContext == null || msg == null) {
             return;
         }
@@ -55,7 +55,7 @@ public class UserLoginCmdHandler implements ICmdHandler<GameMsgProtocolLogin.Use
             channelHandlerContext.channel().attr(AttributeKey.valueOf("userId")).set(user.getUserId());
 
             // 构建UserLoginResult结果对象
-            GameMsgProtocolLogin.UserLoginResult.Builder newBuilder = GameMsgProtocolLogin.UserLoginResult.newBuilder();
+            GameMsgProtocolRank.UserLoginResult.Builder newBuilder = GameMsgProtocolRank.UserLoginResult.newBuilder();
             newBuilder.setUserId(user.getUserId());
             newBuilder.setUserName(user.getUserName());
             newBuilder.setHeroAvatar(user.getHeroAvatar());

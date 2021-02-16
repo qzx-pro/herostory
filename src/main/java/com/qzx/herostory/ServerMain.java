@@ -1,6 +1,8 @@
 package com.qzx.herostory;
 
 import com.qzx.herostory.cmdHandler.CmdHandlerFactory;
+import com.qzx.herostory.mq.MyProducer;
+import com.qzx.herostory.util.RedisUtil;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -35,6 +37,10 @@ public class ServerMain {
         CmdHandlerFactory.init();
         // 初始化会话工厂
         MySqlSessionFactory.init();
+        // 初始化redis
+        RedisUtil.init();
+        // 初始化消息队列(生产者)
+        MyProducer.init();
 
         NioEventLoopGroup boss = new NioEventLoopGroup(1);
         NioEventLoopGroup worker = new NioEventLoopGroup();

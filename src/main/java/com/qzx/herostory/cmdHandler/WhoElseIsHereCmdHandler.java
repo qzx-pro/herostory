@@ -3,7 +3,7 @@ package com.qzx.herostory.cmdHandler;
 import com.qzx.herostory.model.MoveState;
 import com.qzx.herostory.model.User;
 import com.qzx.herostory.model.UserManager;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import io.netty.channel.ChannelHandlerContext;
 
 import java.util.Collection;
@@ -14,13 +14,13 @@ import java.util.Collection;
  * @Description: com.qzx.herostory.cmdHandler
  * @version: 1.0
  */
-public class WhoElseIsHereCmdHandler implements ICmdHandler<GameMsgProtocolLogin.WhoElseIsHereCmd> {
+public class WhoElseIsHereCmdHandler implements ICmdHandler<GameMsgProtocolRank.WhoElseIsHereCmd> {
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.WhoElseIsHereCmd msg) {
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolRank.WhoElseIsHereCmd msg) {
         // 谁还在消息
         // 构建一个WhoElseIsHereResult消息进行返回
-        GameMsgProtocolLogin.WhoElseIsHereResult.Builder builder = GameMsgProtocolLogin.WhoElseIsHereResult.newBuilder();
+        GameMsgProtocolRank.WhoElseIsHereResult.Builder builder = GameMsgProtocolRank.WhoElseIsHereResult.newBuilder();
         // 在WhoElseIsHereResult消息中将所有用户字典的用户添加到UserInfo中
         Collection<User> userCollection = UserManager.getUserCollection();
         for (User user : userCollection) {
@@ -30,8 +30,8 @@ public class WhoElseIsHereCmdHandler implements ICmdHandler<GameMsgProtocolLogin
             }
 
             // 构建用户信息
-            GameMsgProtocolLogin.WhoElseIsHereResult.UserInfo.Builder
-                    userInfoBuilder = GameMsgProtocolLogin.WhoElseIsHereResult.UserInfo.newBuilder();
+            GameMsgProtocolRank.WhoElseIsHereResult.UserInfo.Builder
+                    userInfoBuilder = GameMsgProtocolRank.WhoElseIsHereResult.UserInfo.newBuilder();
             userInfoBuilder.setUserId(user.getUserId());
             userInfoBuilder.setHeroAvatar(user.getHeroAvatar());
             userInfoBuilder.setUserName(user.getUserName());
@@ -39,8 +39,8 @@ public class WhoElseIsHereCmdHandler implements ICmdHandler<GameMsgProtocolLogin
             MoveState userMoveState = user.getMoveState();
 
             // 利用本地的MoveState构建UserInfo中的MoveState消息
-            GameMsgProtocolLogin.WhoElseIsHereResult.UserInfo.MoveState.Builder
-                    moveStateBuilder = GameMsgProtocolLogin.WhoElseIsHereResult.UserInfo.MoveState.newBuilder();
+            GameMsgProtocolRank.WhoElseIsHereResult.UserInfo.MoveState.Builder
+                    moveStateBuilder = GameMsgProtocolRank.WhoElseIsHereResult.UserInfo.MoveState.newBuilder();
             moveStateBuilder.setFromPosX(userMoveState.getFromPosX());
             moveStateBuilder.setFromPosY(userMoveState.getFromPosY());
             moveStateBuilder.setToPosX(userMoveState.getToPosX());

@@ -2,7 +2,7 @@ package com.qzx.herostory;
 
 import com.google.protobuf.GeneratedMessageV3;
 import com.qzx.herostory.model.UserManager;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.util.AttributeKey;
@@ -59,7 +59,7 @@ public class GameMsgHandler extends SimpleChannelInboundHandler<Object> {
         UserManager.removeByUserId(userId);
 
         // 构建UserQuitResult消息
-        GameMsgProtocolLogin.UserQuitResult.Builder newBuilder = GameMsgProtocolLogin.UserQuitResult.newBuilder();
+        GameMsgProtocolRank.UserQuitResult.Builder newBuilder = GameMsgProtocolRank.UserQuitResult.newBuilder();
         newBuilder.setQuitUserId(userId);
 
         // 群发该用户离线的消息

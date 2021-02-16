@@ -3,7 +3,7 @@ package com.qzx.herostory.cmdHandler;
 import com.qzx.herostory.BroadCaster;
 import com.qzx.herostory.model.User;
 import com.qzx.herostory.model.UserManager;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
@@ -15,14 +15,14 @@ import org.slf4j.LoggerFactory;
  * @Description: com.qzx.herostory.cmdHandler
  * @version: 1.0
  */
-public class UserEntryCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserEntryCmd> {
+public class UserEntryCmdHandler implements ICmdHandler<GameMsgProtocolRank.UserEntryCmd> {
     /**
      * 日志对象
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(UserEntryCmdHandler.class);
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserEntryCmd msg) {
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolRank.UserEntryCmd msg) {
         if (channelHandlerContext == null || msg == null) {
             return;
         }
@@ -40,11 +40,11 @@ public class UserEntryCmdHandler implements ICmdHandler<GameMsgProtocolLogin.Use
         }
 
         // 构建一个UserEntryResult对象
-        GameMsgProtocolLogin.UserEntryResult.Builder builder = GameMsgProtocolLogin.UserEntryResult.newBuilder();
+        GameMsgProtocolRank.UserEntryResult.Builder builder = GameMsgProtocolRank.UserEntryResult.newBuilder();
         builder.setUserId(userId);
         builder.setHeroAvatar(user.getHeroAvatar());
         builder.setUserName(user.getUserName());
-        GameMsgProtocolLogin.UserEntryResult userEntryResult = builder.build();
+        GameMsgProtocolRank.UserEntryResult userEntryResult = builder.build();
 
         // 将该消息进行广播
         BroadCaster.broadcast(userEntryResult);

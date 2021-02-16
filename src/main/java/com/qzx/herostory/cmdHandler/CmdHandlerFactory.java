@@ -1,7 +1,7 @@
 package com.qzx.herostory.cmdHandler;
 
 import com.google.protobuf.GeneratedMessageV3;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import com.qzx.herostory.util.PackageUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -102,7 +102,7 @@ public final class CmdHandlerFactory {
     public static void initByNameSpace() {
         LOGGER.info("开始初始化CmdHandlerFactory");
         // 获取GameMsgProtocolNew所有的内部类
-        Class<?>[] innerClazzArray = GameMsgProtocolLogin.class.getDeclaredClasses();
+        Class<?>[] innerClazzArray = GameMsgProtocolRank.class.getDeclaredClasses();
         for (Class<?> clazz : innerClazzArray) {
             // 如果不是消息类就跳过
             if (clazz == null ||

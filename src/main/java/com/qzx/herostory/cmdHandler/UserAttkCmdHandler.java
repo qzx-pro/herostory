@@ -3,7 +3,9 @@ package com.qzx.herostory.cmdHandler;
 import com.qzx.herostory.BroadCaster;
 import com.qzx.herostory.model.User;
 import com.qzx.herostory.model.UserManager;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.mq.MyProducer;
+import com.qzx.herostory.mq.VictorMsg;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
@@ -17,7 +19,7 @@ import java.util.Random;
  * @description: com.qzx.herostory.cmdHandler
  * @version: 1.0
  */
-public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolLogin.UserAttkCmd> {
+public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolRank.UserAttkCmd> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(UserAttkCmdHandler.class);
 
@@ -31,7 +33,7 @@ public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolLogin.User
      */
     private static void broadcastUserAttkResult(int attkUserId, int targetUserId) {
         // 构建UserAttkResult消息
-        GameMsgProtocolLogin.UserAttkResult.Builder newBuilder = GameMsgProtocolLogin.UserAttkResult.newBuilder();
+        GameMsgProtocolRank.UserAttkResult.Builder newBuilder = GameMsgProtocolRank.UserAttkResult.newBuilder();
         newBuilder.setAttkUserId(attkUserId);
         newBuilder.setTargetUserId(targetUserId);
         // 广播UserAttkResult消息
@@ -46,7 +48,7 @@ public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolLogin.User
      */
     private static void broadcastUserSubtractHpResult(int targetUserId, int subtractHp) {
         // 构建UserSubtractHpResult消息
-        GameMsgProtocolLogin.UserSubtractHpResult.Builder newBuilder = GameMsgProtocolLogin.UserSubtractHpResult.newBuilder();
+        GameMsgProtocolRank.UserSubtractHpResult.Builder newBuilder = GameMsgProtocolRank.UserSubtractHpResult.newBuilder();
         newBuilder.setSubtractHp(subtractHp);
         newBuilder.setTargetUserId(targetUserId);
         // 广播UserSubtractHpResult消息
@@ -60,14 +62,14 @@ public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolLogin.User
      */
     private static void broadcastUserDieResult(int targetUserId) {
         // 构建UserDieResult消息
-        GameMsgProtocolLogin.UserDieResult.Builder newBuilder = GameMsgProtocolLogin.UserDieResult.newBuilder();
+        GameMsgProtocolRank.UserDieResult.Builder newBuilder = GameMsgProtocolRank.UserDieResult.newBuilder();
         newBuilder.setTargetUserId(targetUserId);
         // 广播UserDieResult消息
         BroadCaster.broadcast(newBuilder.build());
     }
 
     @Override
-    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolLogin.UserAttkCmd msg) {
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolRank.UserAttkCmd msg) {
 
         if (channelHandlerContext == null || msg == null) {
             return;
@@ -114,6 +116,11 @@ public class UserAttkCmdHandler implements ICmdHandler<GameMsgProtocolLogin.User
             // 血量减小到0，广播UserDieResult消息
             if (currentHp <= 0) {
                 broadcastUserDieResult(targetUserId);
+                // 发送击杀成功消息到消息队列
+                final VictorMsg victorMsg = new VictorMsg();
+                victorMsg.setWinnerId(userId);
+                victorMsg.setLoseId(targetUserId);
+                MyProducer.sendMsg("herostory_victor", victorMsg);
             }
         }
     }

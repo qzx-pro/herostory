@@ -1,13 +1,16 @@
 package com.qzx.herostory.login;
 
+import com.alibaba.fastjson.JSONObject;
 import com.qzx.herostory.MySqlSessionFactory;
 import com.qzx.herostory.async.AsyncOperationProcessor;
 import com.qzx.herostory.async.IAsyncOperation;
 import com.qzx.herostory.login.db.IUserDao;
 import com.qzx.herostory.login.db.UserEntity;
+import com.qzx.herostory.util.RedisUtil;
 import org.apache.ibatis.session.SqlSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import redis.clients.jedis.Jedis;
 
 import java.util.function.Function;
 
@@ -75,6 +78,27 @@ public class LoginService {
         };
 
         AsyncOperationProcessor.getInstance().process(asyncOperation);
+    }
+
+    private void updateUserInfoToRedis(UserEntity userEntity) {
+        if (userEntity == null) {
+            return;
+        }
+
+        try (Jedis jedis = RedisUtil.getJedis()) {
+            if (jedis == null) {
+                return;
+            }
+
+            final JSONObject jsonObject = new JSONObject();
+            jsonObject.put("userName", userEntity.getUserName());
+            jsonObject.put("heroAvatar", userEntity.getHeroAvatar());
+
+            // 更新当前用户数据到redis
+            jedis.hset("User_" + userEntity.getUserId(), "BasicInfo", jsonObject.toJSONString());
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
     }
 
     private static class AsyncLogin implements IAsyncOperation {
@@ -146,6 +170,8 @@ public class LoginService {
                     }
                 }
                 this.userEntity = userEntity;
+                // 更新redis中用户的基本信息
+                LoginService.getInstance().updateUserInfoToRedis(userEntity);
             } catch (Exception e) {
                 LOGGER.error(e.getMessage(), e);
             }

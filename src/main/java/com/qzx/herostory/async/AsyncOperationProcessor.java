@@ -64,6 +64,10 @@ public class AsyncOperationProcessor {
      * @param r 任务
      */
     public void process(IAsyncOperation r) {
+        if (r == null) {
+            return;
+        }
+
         // 获取绑定的id
         int bindId = r.getBindId();
         // 使用绑定的线程执行

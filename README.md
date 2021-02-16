@@ -3625,6 +3625,10 @@ public class AsyncOperationProcessor {
      * @param r 任务
      */
     public void process(IAsyncOperation r) {
+        if (r == null) {
+            return;
+        }
+
         // 获取绑定的id
         int bindId = r.getBindId();
         // 使用绑定的线程执行
@@ -3644,3 +3648,1098 @@ public class AsyncOperationProcessor {
 启动项目测试登录，可以看到实现了多线程进行处理IO逻辑
 
 ![image-20210208190712306](D:\herostory\src\main\resources\images\image-20210208190712306.png)
+
+# 第六天
+
+## 排行榜
+
+现在我们需要实现一个排行榜功能需求，通过统计一个用户的击杀敌人的次数来获取相应的排名，不过这里不打算将排行榜逻辑添加到游戏服务器中，而是单独开辟一个进程来实现排行榜，之所以这么做的原因是因为排行榜的需求有可能会变化，比如增加胜率排名、等级排名等，并且如果排行榜功能出现bug希望不会影响到游戏服务器的正常运行，从而实现线上修改bug，也就是说，我们希望在不影响主要业务功能的前提下，完成功能和扩展新功能。其解决方案如下：
+
+![image-20210214101847547](D:\herostory\src\main\resources\images\image-20210214101847547.png)
+
+当一个用户A击杀用户B的时候就将该消息写入rocketmq中，然后由排行榜进程读取消息并计算排名，并将最新的排名写入redis中，这样在redis中的数据发生变化的时候游戏服务器就会读取最新的排行榜数据从而获取最新的排名。
+
+由于我们在消息中需要传递排名的信息，所以需要修改消息协议。
+
+```protobuf
+syntax = "proto3";
+
+package msg;
+option java_package = "com.qzx.herostory.msg";
+
+// 消息代号
+enum MsgCode {
+  USER_ENTRY_CMD = 0;
+  USER_ENTRY_RESULT = 1;
+  WHO_ELSE_IS_HERE_CMD = 2;
+  WHO_ELSE_IS_HERE_RESULT = 3;
+  USER_MOVE_TO_CMD = 4;
+  USER_MOVE_TO_RESULT = 5;
+  USER_QUIT_RESULT = 6;
+  USER_STOP_CMD = 7;
+  USER_STOP_RESULT = 8;
+  USER_ATTK_CMD = 9;
+  USER_ATTK_RESULT = 10;
+  USER_SUBTRACT_HP_RESULT = 11;
+  USER_DIE_RESULT = 12;
+  USER_LOGIN_CMD = 13;
+  USER_LOGIN_RESULT = 14;
+  SELECT_HERO_CMD = 15;
+  SELECT_HERO_RESULT = 16;
+  GET_RANK_CMD = 17;
+  GET_RANK_RESULT = 18;
+};
+
+//
+// 用户入场
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserEntryCmd {
+}
+
+// 结果
+message UserEntryResult {
+  // 用户 Id
+  uint32 userId = 1;
+  // 用户名称
+  string userName = 2;
+  // 英雄形象
+  string heroAvatar = 3;
+}
+
+//
+// 还有谁在场
+///////////////////////////////////////////////////////////////////////
+// 指令
+message WhoElseIsHereCmd {
+}
+
+// 结果
+message WhoElseIsHereResult {
+  // 用户信息数组
+  repeated UserInfo userInfo = 1;
+
+  // 用户信息
+  message UserInfo {
+    // 用户 Id
+    uint32 userId = 1;
+    // 用户名称
+    string userName = 2;
+    // 英雄形象
+    string heroAvatar = 3;
+    // 移动状态
+    MoveState moveState = 4;
+
+    // 移动状态
+    message MoveState {
+      // 起始位置 X
+      float fromPosX = 1;
+      // 起始位置 Y
+      float fromPosY = 2;
+      // 移动到位置 X
+      float toPosX = 3;
+      // 移动到位置 Y
+      float toPosY = 4;
+      // 启程时间戳
+      uint64 startTime = 5;
+    }
+  }
+}
+
+//
+// 用户移动
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserMoveToCmd {
+  //
+  // XXX 注意: 用户移动指令中没有用户 Id,
+  // 这是为什么?
+  //
+  // 起始位置 X
+  float moveFromPosX = 1;
+  // 起始位置 Y
+  float moveFromPosY = 2;
+  // 移动到位置 X
+  float moveToPosX = 3;
+  // 移动到位置 Y
+  float moveToPosY = 4;
+}
+
+// 结果
+message UserMoveToResult {
+  // 移动用户 Id
+  uint32 moveUserId = 1;
+  // 起始位置 X
+  float moveFromPosX = 2;
+  // 起始位置 Y
+  float moveFromPosY = 3;
+  // 移动到位置 X
+  float moveToPosX = 4;
+  // 移动到位置 Y
+  float moveToPosY = 5;
+  // 启程时间戳
+  uint64 moveStartTime = 6;
+}
+
+//
+// 用户退场
+///////////////////////////////////////////////////////////////////////
+//
+// XXX 注意: 用户退场不需要指令, 因为是在断开服务器的时候执行
+//
+// 结果
+message UserQuitResult {
+  // 退出用户 Id
+  uint32 quitUserId = 1;
+}
+
+//
+// 用户停驻
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserStopCmd {
+}
+
+// 结果
+message UserStopResult {
+  // 停驻用户 Id
+  uint32 stopUserId = 1;
+  // 停驻在位置 X
+  float stopAtPosX = 2;
+  // 停驻在位置 Y
+  float stopAtPosY = 3;
+}
+
+//
+// 用户攻击
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserAttkCmd {
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+}
+
+// 结果
+message UserAttkResult {
+  // 发动攻击的用户 Id
+  uint32 attkUserId = 1;
+  // 目标用户 Id
+  uint32 targetUserId = 2;
+}
+
+// 用户减血结果
+message UserSubtractHpResult {
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+  // 减血量
+  uint32 subtractHp = 2;
+}
+
+// 死亡结果
+message UserDieResult {
+  // 目标用户 Id
+  uint32 targetUserId = 1;
+}
+
+//
+// 用户登录
+///////////////////////////////////////////////////////////////////////
+// 指令
+message UserLoginCmd {
+  // 用户名称
+  string userName = 1;
+  // 用户密码
+  string password = 2;
+}
+
+// 结果
+message UserLoginResult {
+  // 用户 Id,
+  // 如果是 -1 则说明登录失败
+  uint32 userId = 1;
+  // 用户名称
+  string userName = 2;
+  // 英雄形象
+  string heroAvatar = 3;
+}
+
+//
+// 选择英雄
+///////////////////////////////////////////////////////////////////////
+// 指令
+message SelectHeroCmd {
+  // 英雄形象
+  string heroAvatar = 1;
+}
+
+// 结果
+message SelectHeroResult {
+  // 英雄形象,
+  // 如果是空字符串则说明失败
+  string heroAvatar = 1;
+}
+
+//
+// 获取排行榜
+///////////////////////////////////////////////////////////////////////
+// 指令
+message GetRankCmd {
+}
+
+// 结果
+message GetRankResult {
+  // 排名条目
+  repeated RankItem rankItem = 1;
+
+  // 用户信息
+  message RankItem {
+    // 排名 Id
+    uint32 rankId = 1;
+    // 用户 Id
+    uint32 userId = 2;
+    // 用户名称
+    string userName = 3;
+    // 英雄形象
+    string heroAvatar = 4;
+    // 胜利次数
+    uint32 win = 5;
+  }
+}
+
+```
+
+添加redis客户端和rocketmq的依赖
+
+```xml-dtd
+<dependency>
+    <groupId>redis.clients</groupId>
+    <artifactId>jedis</artifactId>
+    <version>3.3.0</version>
+</dependency>
+
+<dependency>
+    <groupId>org.apache.rocketmq</groupId>
+    <artifactId>rocketmq-client</artifactId>
+    <version>4.6.1</version>
+</dependency>
+```
+
+### RankItem(排名信息条目)
+
+由于服务端需要发送GetRankResult消息给客户端返回排名结果，而该消息中又包含了一个RankItem的消息，所以需要在本地暂存RankItem对象，方便封装使用。
+
+```java 
+package com.qzx.herostory.rank;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 10:36
+ * @description: 排名条目
+ * @version: 1.0
+ */
+public class RankItem {
+    /**
+     * 排名Id
+     */
+    private Integer rankId;
+
+    /**
+     * 用户Id
+     */
+    private Integer userId;
+
+    /**
+     * 用户名
+     */
+    private String userName;
+
+    /**
+     * 用户形象
+     */
+    private String heroAvatar;
+
+    /**
+     * 胜利次数
+     */
+    private Integer win;
+
+    public Integer getRankId() {
+        return rankId;
+    }
+
+    public void setRankId(Integer rankId) {
+        this.rankId = rankId;
+    }
+
+    public Integer getUserId() {
+        return userId;
+    }
+
+    public void setUserId(Integer userId) {
+        this.userId = userId;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public void setUserName(String userName) {
+        this.userName = userName;
+    }
+
+    public String getHeroAvatar() {
+        return heroAvatar;
+    }
+
+    public void setHeroAvatar(String heroAvatar) {
+        this.heroAvatar = heroAvatar;
+    }
+
+    public Integer getWin() {
+        return win;
+    }
+
+    public void setWin(Integer win) {
+        this.win = win;
+    }
+}
+
+```
+
+### RedisUtil(redis工具类)
+
+为了方便我们对redis进行操作，我们封装一个redis工具类来获取redis连接。
+
+```java 
+package com.qzx.herostory.util;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 11:02
+ * @description: redis工具类
+ * @version: 1.0
+ */
+public final class RedisUtil {
+    /**
+     * 单例对象
+     */
+    private static final RedisUtil REDIS_UTIL = new RedisUtil();
+
+    /**
+     * jedis连接池
+     */
+    private static JedisPool JEDIS_POOL;
+
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(RedisUtil.class);
+
+    /**
+     * 私有化构造方法
+     */
+    private RedisUtil() {
+
+    }
+
+    /**
+     * 获取单例对象
+     *
+     * @return 单例对象
+     */
+    public static RedisUtil getInstance() {
+        return REDIS_UTIL;
+    }
+
+    /**
+     * 初始化jedis连接池
+     */
+    public static void init() {
+        try {
+            JEDIS_POOL = new JedisPool("192.168.221.139", 6379);
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 获取jedis客户端
+     * @return Jedis
+     */
+    public static Jedis getJedis() {
+        if (JEDIS_POOL == null) {
+            LOGGER.error("Jedis连接池未初始化");
+            return null;
+        }
+        return JEDIS_POOL.getResource();
+    }
+}
+
+```
+
+### RankService(获取排名服务)
+
+接下来，我们需要从redis中读取排名信息，首先，redis中存储的排名是一个List，其名称叫做Rank，每一个对象是由userId(用户Id)和win(当前玩家胜利次数)
+所组成，我们需要获取该排名信息并且按照win的大小递减排序，从而获取rankId。其次，操作redis实际上也是一个异步操作，需要在异步线程中执行，这里可以使用AsyncOperationProcessor来执行异步操作，具体的获取排名的逻辑在doAsync方法中实现，返回的结果在doFinish中通过回调函数传递给主线程。
+
+redis中不仅仅是存储了排名，也存储了用户的信息，采用的是一个map的数据结构，每一个key是"User_"
++userId，其中的BasicInfo保存了用户的所有基本信息，其格式是json字符串，该基本信息是在用户登录的时候写入redis的。
+
+```java
+package com.qzx.herostory.rank;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.qzx.herostory.async.AsyncOperationProcessor;
+import com.qzx.herostory.async.IAsyncOperation;
+import com.qzx.herostory.util.RedisUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.Tuple;
+
+import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 10:39
+ * @description: 获取排名服务
+ * @version: 1.0
+ */
+public class RankService {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(RankService.class);
+
+    /**
+     * 单例对象
+     */
+    private static final RankService RANK_SERVICE = new RankService();
+
+    /**
+     * 私有化构造方法
+     */
+    private RankService() {
+
+    }
+
+    /**
+     * 获取单例对象
+     *
+     * @return RankService
+     */
+    public static RankService getInstance() {
+        return RANK_SERVICE;
+    }
+
+    /**
+     * 获取排名列表
+     *
+     * @param callback 回调函数
+     */
+    public void getRankList(Function<List<RankItem>, Void> callback) {
+        // 异步执行从redis中 获取排名
+        AsyncOperationProcessor.getInstance().process(new AsyncRankOperation() {
+            @Override
+            public void doFinish() {
+                callback.apply(this.getRankItemList());
+            }
+        });
+    }
+
+    private static class AsyncRankOperation implements IAsyncOperation {
+        /**
+         * 获取排名结果集
+         */
+        private List<RankItem> rankItemList;
+
+        /**
+         * 返回排名列表
+         *
+         * @return 排名列表
+         */
+        public List<RankItem> getRankItemList() {
+            return rankItemList;
+        }
+
+        @Override
+        public void doAsync() {
+            // 获取jedis对象
+            try (Jedis jedis = RedisUtil.getJedis()) {
+
+                if (jedis == null) {
+                    return;
+                }
+
+                rankItemList = new LinkedList<>();
+
+                // 当前用户排名
+                int rank = 0;
+                // 排名结果前10集合
+                Set<Tuple> tuples = jedis.zrevrangeWithScores("Rank", 0, 9);
+                for (Tuple tuple : tuples) {
+                    // 获取用户Id
+                    int userId = Integer.parseInt(tuple.getElement());
+                    // 获取胜利次数
+                    int win = (int) tuple.getScore();
+                    // 获取用户信息
+                    String userInfo = jedis.hget("User_" + userId, "BasicInfo");
+
+                    if (userInfo == null) {
+                        continue;
+                    }
+
+                    // 构建RankItem
+                    JSONObject jsonObject = JSON.parseObject(userInfo);
+                    String userName = jsonObject.getString("userName");
+                    String heroAvatar = jsonObject.getString("heroAvatar");
+                    RankItem rankItem = new RankItem();
+                    rankItem.setRankId(++rank);
+                    rankItem.setUserId(userId);
+                    rankItem.setWin(win);
+                    rankItem.setUserName(userName);
+                    rankItem.setHeroAvatar(heroAvatar);
+
+                    // 将rankItem添加到rankItemList中
+                    rankItemList.add(rankItem);
+                }
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+}
+
+```
+
+同步用户基本信息到redis中，在LoginService中的updateUserInfoToRedis完成该逻辑，在异步执行登录成功后根据返回的UserEntity写入redis。
+
+```java
+package com.qzx.herostory.login;
+
+import com.alibaba.fastjson.JSONObject;
+import com.qzx.herostory.MySqlSessionFactory;
+import com.qzx.herostory.async.AsyncOperationProcessor;
+import com.qzx.herostory.async.IAsyncOperation;
+import com.qzx.herostory.login.db.IUserDao;
+import com.qzx.herostory.login.db.UserEntity;
+import com.qzx.herostory.util.RedisUtil;
+import org.apache.ibatis.session.SqlSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import redis.clients.jedis.Jedis;
+
+import java.util.function.Function;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/7 - 02 - 07 - 15:42
+ * @description: com.qzx.herostory.login.db
+ * @version: 1.0
+ */
+public class LoginService {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoginService.class);
+
+    /**
+     * 单例对象
+     */
+    private static final LoginService LOGIN_SERVICE = new LoginService();
+
+    /**
+     * 私有化构造方法
+     */
+    private LoginService() {
+
+    }
+
+    /**
+     * 获取LoginService对象
+     *
+     * @return LoginService对象
+     */
+    public static LoginService getInstance() {
+        return LOGIN_SERVICE;
+    }
+
+    /**
+     * 根据用户名获取用户对象
+     *
+     * @param userName 用户名
+     * @param password 登陆密码
+     */
+    public void login(String userName, String password, Function<UserEntity, Void> callback) {
+        if (userName == null) {
+            LOGGER.error("userName为空");
+            return;
+        }
+
+        IAsyncOperation asyncOperation = new AsyncLogin(userName, password) {
+            @Override
+            public int getBindId() {
+                // 取最后一个字符作为选择的线程id
+                int bindId = userName.charAt(userName.length() - 1);
+                LOGGER.info("获取bindId: " + bindId);
+                return bindId;
+            }
+
+            @Override
+            public void doFinish() {
+                if (callback != null) {
+                    LOGGER.info("执行登录成功后回调函数，当前线程为：" + Thread.currentThread().getName());
+                    callback.apply(this.getUserEntity());
+                }
+            }
+        };
+
+        AsyncOperationProcessor.getInstance().process(asyncOperation);
+    }
+
+    private static class AsyncLogin implements IAsyncOperation {
+        /**
+         * 日志对象
+         */
+        private static final Logger LOGGER = LoggerFactory.getLogger(AsyncLogin.class);
+        /**
+         * 用户名
+         */
+        String username;
+
+        /**
+         * 密码
+         */
+        String password;
+
+        /**
+         * 结果对象
+         */
+        UserEntity userEntity;
+
+        AsyncLogin(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+
+        public UserEntity getUserEntity() {
+            return userEntity;
+        }
+
+        /**
+         * 执行异步登录操作
+         */
+        @Override
+        public void doAsync() {
+            try (SqlSession session = MySqlSessionFactory.getConnection()) {
+                if (session == null) {
+                    LOGGER.error("获取连接失败");
+                    return;
+                }
+
+                IUserDao iUserDao = session.getMapper(IUserDao.class);
+
+                LOGGER.info("开始执行登录IO操作，当前线程为：" + Thread.currentThread().getName());
+
+                if (iUserDao == null) {
+                    LOGGER.error("iUserDao为空");
+                    return;
+                }
+
+                UserEntity userEntity = iUserDao.getUserByName(this.username);
+
+                if (userEntity == null) {
+                    LOGGER.info("用户不存在，开始创建用户");
+
+                    userEntity = new UserEntity();
+                    userEntity.setUserName(this.username);
+                    userEntity.setPassword(this.password);
+                    userEntity.setHeroAvatar("Hero_Shaman");
+                    iUserDao.insertInto(userEntity);
+                    session.commit();
+
+                    LOGGER.info("创建成功，并开始登陆");
+                } else {
+                    if (!userEntity.getPassword().equals(this.password)) {
+                        LOGGER.error("密码不正确");
+                        return;
+                    }
+                }
+                this.userEntity = userEntity;
+                // 更新redis中用户的基本信息
+                LoginService.getInstance().updateUserInfoToRedis(userEntity);
+            } catch (Exception e) {
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    private void updateUserInfoToRedis(UserEntity userEntity) {
+        if (userEntity == null) {
+            return;
+        }
+
+        try (Jedis jedis = RedisUtil.getJedis()) {
+            if (jedis == null) {
+                return;
+            }
+
+            final JSONObject jsonObject = new JSONObject();
+            jsonObject.put("userName", userEntity.getUserName());
+            jsonObject.put("heroAvatar", userEntity.getHeroAvatar());
+
+            // 更新当前用户数据到redis
+            jedis.hset("User_" + userEntity.getUserId(), "BasicInfo", jsonObject.toJSONString());
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
+    }
+}
+
+```
+
+### 获取排名消息处理器GetRankCmdHandler
+
+我们现在获取了排名列表，现在需要根据该列表封装为GetRankResult发送给客户端。
+
+```java
+package com.qzx.herostory.cmdHandler;
+
+import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
+import com.qzx.herostory.rank.RankItem;
+import com.qzx.herostory.rank.RankService;
+import io.netty.channel.ChannelHandlerContext;
+
+import java.util.Collections;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/14 - 02 - 14 - 16:21
+ * @description: 获取排名消息处理器
+ * @version: 1.0
+ */
+public class GetRankCmdHandler implements ICmdHandler<GameMsgProtocolRank.GetRankCmd> {
+    @Override
+    public void handle(ChannelHandlerContext channelHandlerContext, GameMsgProtocolRank.GetRankCmd msg) {
+        if (channelHandlerContext == null || msg == null) {
+            return;
+        }
+
+        // 获取排行榜数据
+        RankService.getInstance().getRankList(rankItemList -> {
+            if (rankItemList == null) {
+                rankItemList = Collections.emptyList();
+            }
+
+            GameMsgProtocolLogin.GetRankResult.Builder builder = GameMsgProtocolLogin.GetRankResult.newBuilder();
+
+            for (RankItem rankItem : rankItemList) {
+                if (rankItem == null) {
+                    continue;
+                }
+
+                GameMsgProtocolLogin.GetRankResult.RankItem.Builder rankItemBuilder =
+                        GameMsgProtocolLogin.GetRankResult.RankItem.newBuilder();
+                rankItemBuilder.setRankId(rankItem.getRankId());
+                rankItemBuilder.setHeroAvatar(rankItem.getHeroAvatar());
+                rankItemBuilder.setUserName(rankItem.getUserName());
+                rankItemBuilder.setWin(rankItem.getWin());
+                rankItemBuilder.setUserId(rankItem.getUserId());
+
+                builder.addRankItem(rankItemBuilder.build());
+            }
+
+            channelHandlerContext.writeAndFlush(builder.build());
+
+            return null;
+        });
+    }
+}
+
+
+```
+
+### 消息队列生产者
+
+在角色A击败角色B的时候，会向消息队列中发送一条{winnerId=AId,loseId=BId}的消息(自定义VistorMsg消息)，以供排行榜进程消费该消息计算新的排名。
+
+```java
+package com.qzx.herostory.mq;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 18:05
+ * @description: 击杀成功消息
+ * @version: 1.0
+ */
+public class VictorMsg {
+    /**
+     * 胜利者Id
+     */
+    private Integer winnerId;
+
+    /**
+     * 失败者Id
+     */
+    private Integer loseId;
+
+    public Integer getWinnerId() {
+        return winnerId;
+    }
+
+    public void setWinnerId(Integer winnerId) {
+        this.winnerId = winnerId;
+    }
+
+    public Integer getLoseId() {
+        return loseId;
+    }
+
+    public void setLoseId(Integer loseId) {
+        this.loseId = loseId;
+    }
+}
+
+```
+
+```java
+package com.qzx.herostory.mq;
+
+import com.alibaba.fastjson.JSONObject;
+import org.apache.rocketmq.client.producer.DefaultMQProducer;
+import org.apache.rocketmq.common.message.Message;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 17:15
+ * @description: 消息生产者
+ * @version: 1.0
+ */
+public final class MyProducer {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(MyProducer.class);
+
+    /**
+     * 生产者
+     */
+    private static DefaultMQProducer producer = null;
+
+    /**
+     * 私有化构造方法
+     */
+    private MyProducer() {
+
+    }
+
+    /**
+     * 初始化消息队列（生产者）
+     */
+    public static void init() {
+        try {
+            // 创建生产者
+            producer = new DefaultMQProducer("herostory");
+            // 设置nameServer
+            producer.setNamesrvAddr("192.168.221.139:9876");
+            // 启动生产者
+            producer.start();
+            // 设置发送消息重试次数
+            producer.setRetryTimesWhenSendAsyncFailed(3);
+
+            LOGGER.info("消息队列(生产者)启动成功!");
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 发送消息
+     *
+     * @param topic 指定的主题
+     * @param msg   消息实体
+     */
+    public static void sendMsg(String topic, Object msg) {
+        if (topic == null || msg == null) {
+            return;
+        }
+
+        try {
+            final Message message = new Message();
+            message.setTopic(topic);
+            message.setBody(JSONObject.toJSONBytes(msg));
+
+            if (producer == null) {
+                LOGGER.error("生产者未初始化!");
+                return;
+            }
+
+            producer.send(message);
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
+    }
+}
+
+```
+
+在UserAttkCmdHandler中，如果被攻击方的血量小于等于0的时候就发送一条VistorMsg的消息
+
+```java
+// 血量减小到0，广播UserDieResult消息
+if(currentHp<=0){
+        broadcastUserDieResult(targetUserId);
+// 发送击杀成功消息到消息队列
+final VictorMsg victorMsg=new VictorMsg();
+        victorMsg.setWinnerId(userId);
+        victorMsg.setLoseId(targetUserId);
+        MyProducer.sendMsg("herostory_victor",victorMsg);
+        }
+```
+
+### 消息队列消费者(排行榜进程)
+
+消费者会订阅herostory_victor主题，并注册回调，在有消息消费的时候就将该消息取出并通过winnerId和loserId来更新redis中的排行榜Rank。而更新redis排行榜的逻辑为：首先统计winnerId和loserId用户胜利和失败的次数，存储在"
+User_"+userId中的“Win”和"Lose"字段，然后获取winnerId中的胜利次数(Win字段)，最后修改Rank排名(添加一个{win,winnerId}对象)。
+
+首先在RankService中添加刷新redis排行榜的逻辑
+
+```java
+/**
+ * 刷新redis排行榜数据
+ *
+ * @param winnerId 赢家Id
+ * @param loserId  输家Id
+ */
+public void refreshRedis(int winnerId,int loserId){
+        if(winnerId<=0||loserId<=0){
+        return;
+        }
+
+        try(final Jedis jedis=RedisUtil.getJedis()){
+        if(jedis==null){
+        return;
+        }
+        // 增加用户胜利和失败的次数
+        jedis.hincrBy("User_"+winnerId,"Win",1);
+        jedis.hincrBy("User_"+loserId,"Lose",1);
+        // 获取winnerId胜利的次数
+        int win=Integer.parseInt(jedis.hget("User_"+winnerId,"Win"));
+        // 修改排名数据
+        jedis.zadd("Rank",win,String.valueOf(winnerId));
+        }catch(Exception e){
+        LOGGER.error(e.getMessage(),e);
+        }
+        }
+```
+
+然后创建消费者，并在排行榜进程中进行初始化
+
+```java
+package com.qzx.herostory.mq;
+
+import com.alibaba.fastjson.JSONObject;
+import com.qzx.herostory.rank.RankService;
+import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
+import org.apache.rocketmq.client.consumer.listener.ConsumeConcurrentlyContext;
+import org.apache.rocketmq.client.consumer.listener.ConsumeConcurrentlyStatus;
+import org.apache.rocketmq.client.consumer.listener.MessageListenerConcurrently;
+import org.apache.rocketmq.common.message.MessageExt;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 20:10
+ * @description: 消息队列消费者
+ * @version: 1.0
+ */
+public class MyConsumer {
+    /**
+     * 日志对象
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(MyConsumer.class);
+
+    /**
+     * 消费者
+     */
+    private static DefaultMQPushConsumer consumer = null;
+
+    /**
+     * 私有化构造方法
+     */
+    private MyConsumer() {
+
+    }
+
+    /**
+     * 初始化consumer
+     */
+    public static void init() {
+        try {
+            // 创建消费者
+            consumer = new DefaultMQPushConsumer("herostory");
+            // 设置nameserver
+            consumer.setNamesrvAddr("192.168.221.139:9876");
+            // 订阅topic
+            consumer.subscribe("herostory_victor", "*");
+            // 注册回调
+            consumer.registerMessageListener(new MessageListenerConcurrently() {
+                @Override
+                public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs, ConsumeConcurrentlyContext context) {
+                    // 消费消息并且写入redis中
+                    for (MessageExt msg : msgs) {
+                        VictorMsg victorMsg = JSONObject.parseObject(msg.getBody(), VictorMsg.class);
+                        LOGGER.info("从消息队列中获取消息：winnerId={},loserId={} ", victorMsg.getWinnerId(), victorMsg.getLoseId());
+                        RankService.getInstance().refreshRedis(victorMsg.getWinnerId(), victorMsg.getLoseId());
+                    }
+                    return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+                }
+            });
+            // 启动消费者
+            consumer.start();
+            LOGGER.info("消息队列(消费者)连接成功!");
+        } catch (Exception e) {
+            LOGGER.error(e.getMessage(), e);
+        }
+    }
+}
+
+```
+
+```java
+package com.qzx.herostory;
+
+import com.qzx.herostory.mq.MyConsumer;
+import com.qzx.herostory.util.RedisUtil;
+
+/**
+ * @author: qzx
+ * @date: 2021/2/16 - 02 - 16 - 20:09
+ * @description: 排行榜进程
+ * @version: 1.0
+ */
+public class RankApp {
+    public static void main(String[] args) {
+        // 初始化redis
+        RedisUtil.init();
+        // 初始化消息队列(消费者)
+        MyConsumer.init();
+    }
+}
+
+```
+

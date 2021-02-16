@@ -2,7 +2,7 @@ package com.qzx.herostory;
 
 import com.google.protobuf.GeneratedMessageV3;
 import com.google.protobuf.Message;
-import com.qzx.herostory.msg.GameMsgProtocolLogin;
+import com.qzx.herostory.msg.GameMsgProtocolRank;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,8 +40,8 @@ public final class GameMsgRecognizer {
     public static void init() {
         LOGGER.info("开始初始化GameMsgRecognizer");
         // 获取GameMsgProtocol所有的内部类
-        Class<?>[] innerClazzArray = GameMsgProtocolLogin.class.getDeclaredClasses();
-        GameMsgProtocolLogin.MsgCode[] msgCodes = GameMsgProtocolLogin.MsgCode.values();
+        Class<?>[] innerClazzArray = GameMsgProtocolRank.class.getDeclaredClasses();
+        GameMsgProtocolRank.MsgCode[] msgCodes = GameMsgProtocolRank.MsgCode.values();
         for (Class<?> clazz : innerClazzArray) {
             // 如果不是消息类就跳过
             if (clazz == null ||
@@ -52,7 +52,7 @@ public final class GameMsgRecognizer {
             // 获取简单类名小写
             String clazzName = clazz.getSimpleName().toLowerCase();
 
-            for (GameMsgProtocolLogin.MsgCode msgCode : msgCodes) {
+            for (GameMsgProtocolRank.MsgCode msgCode : msgCodes) {
                 // 将所有的下划线去除并转化为小写
                 String msgCodeString = msgCode.toString().replaceAll("_", "").toLowerCase();
 
