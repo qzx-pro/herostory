@@ -4743,3 +4743,6 @@ public class RankApp {
 
 ```
 
+启动ServerMain和RankApp进程，并使用http://cdn0001.afrxvk.cn/hero_story/demo/step040/index.html?serverAddr=127.0.0.1:12345进行测试，可以看到排行榜数据如下：
+
+![image-20210216210026975](D:\herostory\src\main\resources\images\image-20210216210026975.png)

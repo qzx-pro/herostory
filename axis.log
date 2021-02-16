@@ -6295,3 +6295,45 @@ moveToPosY: 3.4115138
 
 70055 [nioEventLoopGroup-3-14] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
 74394 [nioEventLoopGroup-3-14] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+0    [main] INFO  com.qzx.herostory.util.RedisUtil  - 连接redis成功
+0    [main] INFO  com.qzx.herostory.GameMsgRecognizer  - 开始初始化GameMsgRecognizer
+250  [main] INFO  com.qzx.herostory.GameMsgRecognizer  - GameMsgRecognizer初始化完成
+255  [main] INFO  com.qzx.herostory.cmdHandler.CmdHandlerFactory  - 开始初始化CmdHandlerFactory
+416  [main] INFO  com.qzx.herostory.cmdHandler.CmdHandlerFactory  - 初始化CmdHandlerFactory完成
+419  [main] INFO  com.qzx.herostory.MySqlSessionFactory  - 开始连接数据库
+1103 [main] INFO  com.qzx.herostory.MySqlSessionFactory  - 连接数据库成功
+1221 [main] INFO  com.qzx.herostory.util.RedisUtil  - 连接redis成功
+10098 [main] INFO  com.qzx.herostory.mq.MyConsumer  - 消息队列(消费者)连接成功!
+7289 [main] INFO  com.qzx.herostory.mq.MyProducer  - 消息队列(生产者)启动成功!
+9496 [main] INFO  com.qzx.herostory.ServerMain  - 服务器启动成功
+76135 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 开始登录
+76135 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 开始处理登录业务逻辑，当前线程为：MainMsgHandler
+76139 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 获取bindId: 97
+76153 [AsyncOperationProcessor [ 1 ]] INFO  com.qzx.herostory.login.LoginService$AsyncLogin  - 开始执行登录IO操作，当前线程为：AsyncOperationProcessor [ 1 ]
+76230 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userName: "a"
+password: "1"
+
+78067 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 执行登录成功后回调函数，当前线程为：MainMsgHandler
+78067 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 登录成功
+78500 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+78501 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+104094 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 开始登录
+104094 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:userName: "qzx"
+password: "123"
+
+104094 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 开始处理登录业务逻辑，当前线程为：MainMsgHandler
+104095 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 获取bindId: 120
+104095 [AsyncOperationProcessor [ 0 ]] INFO  com.qzx.herostory.login.LoginService$AsyncLogin  - 开始执行登录IO操作，当前线程为：AsyncOperationProcessor [ 0 ]
+104100 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 执行登录成功后回调函数，当前线程为：MainMsgHandler
+104101 [MainMsgHandler] INFO  com.qzx.herostory.login.LoginService  - 登录成功
+104246 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+104247 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+105960 [nioEventLoopGroup-3-2] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:moveToPosX: -183.53946
+moveToPosY: 7.5053306
+
+111925 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+114314 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:targetUserId: 4294967295
+
+115940 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:
+121757 [nioEventLoopGroup-3-1] INFO  com.qzx.herostory.GameMsgHandler  - 收到消息：msg:targetUserId: 4294967295
+
